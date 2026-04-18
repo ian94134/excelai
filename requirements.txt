@@ -1,0 +1,9 @@
+pywin32>=306
+streamlit>=1.35
+openai>=1.30
+httpx[socks]>=0.27
+google-genai>=1.5
+python-dotenv>=1.0
+
+# 打包成 EXE 用（同仁機器不需要安裝）
+pyinstaller>=6.0
