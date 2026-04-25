@@ -1,146 +1,170 @@
-# 📊 Excel AI 助手
+# Excel AI 助手（`excel-ai` 子系統）
 
-透過自然語言直接操控 Microsoft Excel，無需手動操作，說出你想做的事，AI 自動完成。
+這份 README 只描述 `excel-main/excel-ai/` 這條 Python/Streamlit + `pywin32` 產品線。若你要看整個工作區、React/Electron 編輯器或歷史文件導覽，請先回到 [../README.md](../README.md) 與 [../DOCS.md](../DOCS.md)。
 
-基於本地 Qwen 大型語言模型，28 個 Excel 工具，Streamlit 網頁介面，可打包為 Windows EXE 供同事直接使用。
+## 目前狀態
 
----
+- 版本字串：`v4.0.0`
+- LLM 端：OpenAI 相容介面，預設為本地/內網 Qwen
+- 預設設定：
+  - `QWEN_BASE_URL=http://140.96.96.16:8079/v1`
+  - `QWEN_MODEL=Qwen-3.5-122B-A10B`
+- Tool schema：**60 個**
+- 危險工具：**6 個**
+- 自動化驗證：
+  - `pytest -q`：`33 passed`
+  - GitHub Actions：前端 CI + Windows `excel-ai` 測試
 
-## ✨ 功能一覽
+## 這個子系統做什麼
 
-| 類別 | 工具 |
+`excel-ai` 會在 Windows 上透過 `pywin32` 直接控制「使用者已經開啟中的」Microsoft Excel。使用者在 Streamlit 聊天介面輸入自然語言後，LLM 會選擇對應工具，再由 `excel_tools.py` 執行 Excel 操作。
+
+適合的場景：
+
+- 真正操作桌面版 Excel 2021 活頁簿
+- 排序、篩選、圖表、樞紐、框線、資料驗證等 Excel 實際功能
+- 危險操作前要有確認流程
+- 需要 `undo_last`、快照、操作紀錄與側邊欄控制
+
+## 目前能力摘要
+
+### Tool 層
+
+- 60 個 OpenAI 相容 tools
+- 6 個危險工具會在 UI 中要求使用者確認
+- `undo_last` 已存在，支援可復原操作與不可復原狀況說明
+
+### 側邊欄與 UI
+
+- Qwen URL / Model 設定
+- Excel 狀態顯示
+- 備份堆疊與「↶ 復原上一步」
+- 工作表快照 / 還原
+- CSV 快速導入
+- 任務規劃模式
+- 唯讀操作紀錄
+- 對話歷史儲存 / 載入 / 清除
+
+### 穩健性與觀測
+
+- `error_type` 結構化錯誤回傳
+- JSON Lines 結構化日誌：`~/.excel-ai/logs/YYYY-MM-DD.jsonl`
+- Launcher 日誌：`ExcelAI_log.txt`
+- 重複 tool call 保護
+- `pytest` 測試與 GitHub Actions
+
+## 系統需求
+
+| 項目 | 需求 |
 |------|------|
-| 讀寫 | 讀取範圍、寫入值／公式、儲存檔案 |
-| 格式 | 字型、顏色、背景色、數字格式、對齊、框線、合併儲存格 |
-| 列欄 | 插入／刪除列、插入／刪除欄、設定列高、設定欄寬、自動欄寬 |
-| 工作表 | 新增、重新命名、凍結窗格 |
-| 資料 | 排序、篩選、尋找取代、跨表複製、清除 |
-| 視覺化 | 建立圖表（直條、橫條、折線、圓餅、區域、散佈）|
-| 分析 | 建立樞紐分析表 |
-| 自動化 | 條件格式化、下拉選單驗證 |
+| 作業系統 | Windows 10 / 11 |
+| Excel | Microsoft Excel 2016 以上；需已開啟活頁簿 |
+| Python | 3.10 以上（開發/測試環境） |
+| LLM 端點 | 可存取的 OpenAI 相容 API；預設為 Qwen |
 
-**指令範例：**
-- `把標題列加粗、藍底白字，然後自動調整欄寬`
-- `篩選出地區為台北的資料`
-- `用銷售額欄位建立長條圖`
-- `做一張樞紐分析表，列用地區，值用金額加總`
-- `把大於 80 分的格子變綠色`
-- `在 B 欄設定下拉選單：是、否、待定`
+## 快速開始
 
----
-
-## 🖥️ 系統需求
-
-- Windows 10 / 11
-- Microsoft Excel 2016 以上（需已開啟 Excel 檔案）
-- Python 3.10 以上（開發環境用）
-- 可存取 Qwen 本地模型伺服器
-
----
-
-## 🚀 快速開始（開發環境）
-
-### 1. 安裝依賴套件
+### 1. 安裝依賴
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 設定環境變數
+若要跑測試：
 
-複製 `.env.example` 並建立 `.env`：
+```bash
+pip install -r requirements-dev.txt
+```
+
+### 2. 設定 `.env`
 
 ```bash
 copy .env.example .env
 ```
 
-編輯 `.env`，填入你的 Qwen 伺服器資訊：
+常用欄位：
 
 ```env
 QWEN_BASE_URL=http://你的伺服器IP:埠號/v1
 QWEN_MODEL=你的模型名稱
 ```
 
-### 3. 開啟 Excel，然後啟動
+### 3. 開啟 Excel，再啟動 Streamlit
 
 ```bash
 streamlit run main.py
 ```
 
-瀏覽器會自動開啟 `http://localhost:8501`。
+瀏覽器會開到 `http://localhost:8501`；若埠號被占用，launcher/打包版本會自動嘗試 `8502~8509`。
 
----
+## 測試與驗證
 
-## 📦 打包為 EXE（供同事使用）
+### Pytest
+
+```bash
+pytest -q
+```
+
+### Qwen 連線測試
+
+```bash
+python ..\\test_qwen\\test_01_basic_chat.py
+python ..\\test_qwen\\test_02_tool_calling.py
+```
+
+### 手動整合測試
+
+- [../MANUAL_TEST.md](../MANUAL_TEST.md)
+- [../undo_test_guide.md](../undo_test_guide.md)
+
+## 打包為 EXE
 
 ```bash
 python build.py
 ```
 
-打包完成後，`dist/ExcelAI/` 資料夾內會有 `ExcelAI.exe`，將整個資料夾複製給同事即可。
+打包後：
 
-### 同事使用方式
+- EXE 主程式位於 `dist/ExcelAI/`
+- 啟動器會寫 `ExcelAI_log.txt`
+- 執行中的主流程會另外寫 `~/.excel-ai/logs/*.jsonl`
 
-1. 安裝 [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)（若尚未安裝）
-2. 先開啟 Excel，並打開要操作的檔案
-3. 雙擊 `ExcelAI.exe`，瀏覽器會自動開啟操作介面
-4. 輸入自然語言指令即可
+## 目錄結構
 
-> ⚠️ EXE 與 Excel 必須同時開啟才能正常運作
-
----
-
-## 🗂️ 專案結構
-
-```
+```text
 excel-ai/
-├── main.py              # Streamlit 主程式（入口）
-├── config.py            # 環境變數、System Prompt、Provider 工廠
-├── constants.py         # Excel COM 常數集中管理
-├── excel_tools.py       # 28 個工具的 win32com 實作
-├── session.py           # 對話訊息管理（摘要、儲存、載入）
-├── launcher.py          # PyInstaller EXE 啟動器
-├── build.py             # PyInstaller 打包腳本
-│
+├── main.py
+├── config.py
+├── constants.py
+├── excel_tools.py
+├── backup.py
+├── logger.py
+├── session.py
+├── launcher.py
+├── build.py
+├── exceptions.py
+├── requirements.txt
+├── requirements-dev.txt
 ├── providers/
-│   ├── base.py          # LLMProvider 抽象介面
-│   └── local_qwen.py    # Qwen 串流／非串流實作
-│
+│   ├── base.py
+│   └── local_qwen.py
 ├── tools/
-│   ├── definition.py    # 28 個工具的 OpenAI 格式 schema
-│   └── executor.py      # 工具分派與執行
-│
-└── ui/
-    └── sidebar.py       # Streamlit 側邊欄元件
+│   ├── definition.py
+│   └── executor.py
+├── ui/
+│   └── sidebar.py
+└── tests/
+    ├── conftest.py
+    ├── test_backup.py
+    ├── test_session.py
+    └── test_tools_schema.py
 ```
 
----
+## 相關文件
 
-## ⚙️ 主要技術
-
-| 技術 | 用途 |
-|------|------|
-| [Streamlit](https://streamlit.io) | 網頁介面 |
-| [pywin32](https://github.com/mhammond/pywin32) | win32com 控制 Excel |
-| [OpenAI Python SDK](https://github.com/openai/openai-python) | 對接 Qwen OpenAI 相容 API |
-| [PyInstaller](https://pyinstaller.org) | 打包為 Windows EXE |
-| Qwen 本地模型 | 自然語言理解與工具呼叫 |
-
----
-
-## 🔒 安全說明
-
-- `.env` 含伺服器位址，已加入 `.gitignore`，不會上傳至 GitHub
-- 危險操作（刪除列、清除範圍、全文取代）執行前會彈出確認視窗
-- 所有 Excel 操作只影響已開啟的活頁簿，不會讀取其他檔案
-
----
-
-## 📋 版本紀錄
-
-| 版本 | 主要功能 |
-|------|---------|
-| V1 | 14 個基礎工具（讀寫、格式、列欄、工作表操作） |
-| V2 | +5 工具（圖表、樞紐、凍結、自動欄寬）、危險操作確認、對話儲存/載入 |
-| V3 | +9 工具（篩選、合併、框線、條件格式、資料驗證）、串流回覆、Port 自動遞增、上下文摘要 |
-| V3.1 | 模組化重構、constants.py、強化 AI 精準度（SOP + few-shot）|
+- [../TOOLS.md](../TOOLS.md)：60 個 tool 速查
+- [../ARCHITECTURE.md](../ARCHITECTURE.md)：工作區與 `excel-ai` 架構
+- [../PROMPT.md](../PROMPT.md)：`SYSTEM_PROMPT` 說明
+- [../TROUBLESHOOTING.md](../TROUBLESHOOTING.md)：排錯與日誌位置
+- [../SECURITY.md](../SECURITY.md)：資料邊界與安全說明
+- [../CHANGELOG.md](../CHANGELOG.md)：版本演進

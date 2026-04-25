@@ -1,11 +1,12 @@
 """
-對話訊息管理：初始化、上下文摘要壓縮、儲存與載入。
+對話訊息管理：初始化、上下文摘要壓縮、tool result 壓縮、儲存與載入。
 所有 Streamlit session_state["messages"] 的讀寫都經由此模組。
 """
 
 import json
 import streamlit as st
 from config import SYSTEM_PROMPT
+from compress import compress_tool_result   # v4.6.0: pure, no-streamlit module
 
 # 超過此輪數時觸發上下文摘要壓縮
 CONTEXT_SUMMARIZE_THRESHOLD = 30
@@ -24,7 +25,10 @@ def get_messages() -> list[dict]:
 
 
 def append_message(msg: dict) -> None:
-    """追加一則訊息。"""
+    """追加一則訊息。tool role 的大型結果自動壓縮以節省 context window。"""
+    if msg.get("role") == "tool" and isinstance(msg.get("content"), str):
+        msg = dict(msg)
+        msg["content"] = compress_tool_result(msg["content"])
     st.session_state["messages"].append(msg)
 
 
@@ -73,11 +77,18 @@ def messages_to_json() -> str:
 def load_messages_from_json(raw: bytes | str) -> int:
     """
     從 JSON bytes/字串載入訊息，追加到現有對話。
-    回傳載入的訊息筆數。
+    - 過濾掉來自外部 JSON 的 system 訊息（防止汙染 system prompt）
+    - 回傳載入的（非 system）訊息筆數
     """
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8")
     loaded = json.loads(raw)
+    if not isinstance(loaded, list):
+        raise ValueError("對話 JSON 格式錯誤：最外層必須是陣列")
+    for item in loaded:
+        if not isinstance(item, dict):
+            raise ValueError(f"對話 JSON 格式錯誤：項目不是物件：{item!r}")
+    non_system = [m for m in loaded if m.get("role") != "system"]
     reset_messages()
-    st.session_state["messages"].extend(loaded)
-    return len(loaded)
+    st.session_state["messages"].extend(non_system)
+    return len(non_system)

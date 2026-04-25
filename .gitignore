@@ -16,13 +16,24 @@ __pycache__/
 venv/
 .venv/
 env/
+build_venv/
 
 # 執行時 log
 *.log
 ExcelAI_log.txt
 
+# V4 Phase 1：結構化 JSON 日誌（實際寫在使用者 ~/.excel-ai/logs/，
+# 但若開發者把 log 複製到專案目錄除錯時，避免誤 commit）
+.excel-ai/
+logs/
+*.jsonl
+
 # 對話記錄匯出
 excel_ai_chat.json
+
+# pytest 快取
+.pytest_cache/
+pytest-cache-files-*/
 
 # IDE 設定
 .vscode/
