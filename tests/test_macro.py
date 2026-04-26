@@ -54,6 +54,10 @@ SAMPLE_STEPS = [
     {"tool": "auto_fit",     "args": {"target": "columns"}},
 ]
 
+DANGEROUS_STEPS = [
+    {"tool": "clear_range", "args": {"range_addr": "A1:D10", "target": "all"}},
+]
+
 
 # ── record_macro ──────────────────────────────────────────────────────────────
 
@@ -193,6 +197,58 @@ def test_run_macro_reports_failure():
     assert "失敗" in result["message"]
 
 
+def test_run_macro_reports_status_error_failure():
+    record_macro("fail_runner", steps=SAMPLE_STEPS)
+    with patch("tools.executor.execute_batch") as mock_batch:
+        mock_batch.return_value = [
+            {
+                "tool": "format_range",
+                "result": {"status": "error", "message": "blocked"},
+                "rolled_back": True,
+            },
+        ]
+        result = run_macro("fail_runner")
+
+    assert result["status"] == "error"
+    assert "失敗" in result["message"]
+
+
+def test_run_macro_blocks_dangerous_steps_by_default():
+    record_macro("danger_runner", steps=DANGEROUS_STEPS)
+    with patch("tools.executor.execute_batch") as mock_batch:
+        result = run_macro("danger_runner")
+
+    assert result["status"] == "error"
+    assert result["requires_confirmation"] is True
+    assert result["error_type"] == "DangerousMacroRequiresConfirmation"
+    assert result["dangerous_steps"][0]["tool"] == "clear_range"
+    mock_batch.assert_not_called()
+
+
+def test_run_macro_confirmed_dangerous_steps_execute():
+    record_macro("danger_runner", steps=DANGEROUS_STEPS)
+    with patch("tools.executor.execute_batch") as mock_batch:
+        mock_batch.return_value = [
+            {"tool": "clear_range", "result": {"status": "ok"}, "rolled_back": False},
+        ]
+        result = run_macro("danger_runner", confirm_dangerous=True)
+
+    assert result["status"] == "ok"
+    mock_batch.assert_called_once_with(DANGEROUS_STEPS, confirm_dangerous=True)
+
+
+def test_executor_run_macro_ignores_untrusted_confirmation_arg():
+    record_macro("danger_runner", steps=DANGEROUS_STEPS)
+    from tools.executor import execute
+
+    with patch("tools.executor.execute_batch") as mock_batch:
+        raw = execute("run_macro", {"name": "danger_runner", "confirm_dangerous": True})
+
+    result = json.loads(raw)
+    assert result["requires_confirmation"] is True
+    mock_batch.assert_not_called()
+
+
 # ── delete_macro ──────────────────────────────────────────────────────────────
 
 def test_delete_macro_success():
@@ -250,4 +306,3 @@ def test_save_then_load_round_trip():
     assert "round_trip" in loaded
     assert loaded["round_trip"]["description"] == "RT"
     assert len(loaded["round_trip"]["steps"]) == 2
-    # isolated_macros_fil

@@ -98,6 +98,16 @@ def test_filter_equals():
     assert r["filtered_count"] == 3
 
 
+def test_filter_accepts_header_name_and_op_alias():
+    r = _query_data(SAMPLE_DATA, cj([{"column": "部門", "op": "equals", "value": "業務"}]))
+    assert r["filtered_count"] == 3
+
+
+def test_unknown_string_column_is_ignored():
+    r = _query_data(SAMPLE_DATA, cj([{"column": "不存在欄位", "op": "equals", "value": "業務"}]))
+    assert r["filtered_count"] == 6
+
+
 def test_filter_not_equals():
     r = _query_data(SAMPLE_DATA, cj([{"column": 2, "operator": "!=", "value": "技術"}]))
     departments = [row[1] for row in r["filtered_rows"]]

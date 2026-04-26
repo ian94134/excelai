@@ -78,4 +78,7 @@ __all__ = [
     # chart
     "create_chart", "delete_chart", "move_chart", "format_chart", "create_combo_chart",
     "create_pivot_table", "refresh_pivot_table", "format_pivot_table",
-    "add_slicer
+    "add_slicer",
+    # undo
+    "_undo_dispatch", "undo_last", "_undo_last_body",
+]

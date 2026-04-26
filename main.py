@@ -458,7 +458,9 @@ if "_pending_confirm" in st.session_state:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("✅ 確認執行", use_container_width=True, type="primary"):
-            result = execute(tc["name"], tc["arguments"])
+            confirmed_args = dict(tc["arguments"])
+            confirmed_args["confirm_dangerous"] = True
+            result = execute(tc["name"], confirmed_args)
             session.append_message({
                 "role": "tool", "tool_call_id": tc["id"],
                 "name": tc["name"], "content": result,
@@ -668,4 +670,3 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                 exc = data
                 placeholder.error(f"執行錯誤：{exc}")
                 _log.exception("main_loop_error", extra={"error_type": type(exc).__name__})
-

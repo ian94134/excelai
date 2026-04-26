@@ -139,7 +139,29 @@ def list_macros() -> dict:
     return {"status": "ok", "macros": macro_list, "count": len(macro_list)}
 
 
-def run_macro(name: str) -> dict:
+def _dangerous_steps(steps: list[dict]) -> list[dict]:
+    """Return dangerous macro steps with 1-based indices for UI confirmation."""
+    from tools.executor import DANGEROUS_TOOLS
+
+    found: list[dict] = []
+    for index, step in enumerate(steps, start=1):
+        tool_name = step.get("tool", "")
+        if tool_name in DANGEROUS_TOOLS:
+            found.append({
+                "index": index,
+                "tool": tool_name,
+                "args": step.get("args", {}),
+            })
+    return found
+
+
+def _is_error_result(result: object) -> bool:
+    return isinstance(result, dict) and (
+        "error" in result or result.get("status") == "error"
+    )
+
+
+def run_macro(name: str, confirm_dangerous: bool = False) -> dict:
     """
     執行已儲存的巨集。失敗時 execute_batch 自動回滾已執行步驟。
 
@@ -165,10 +187,22 @@ def run_macro(name: str) -> dict:
     if not steps:
         return {"status": "error", "message": f"巨集「{name}」沒有步驟"}
 
-    from tools.executor import execute_batch
-    results = execute_batch(steps)
+    dangerous = _dangerous_steps(steps)
+    if dangerous and not confirm_dangerous:
+        tools = "、".join(f"第 {s['index']} 步 {s['tool']}" for s in dangerous)
+        return {
+            "status": "error",
+            "error_type": "DangerousMacroRequiresConfirmation",
+            "requires_confirmation": True,
+            "name": name,
+            "dangerous_steps": dangerous,
+            "message": f"巨集「{name}」包含危險工具（{tools}），請確認後再執行",
+        }
 
-    failed = [r for r in results if "error" in r.get("result", {})]
+    from tools.executor import execute_batch
+    results = execute_batch(steps, confirm_dangerous=confirm_dangerous)
+
+    failed = [r for r in results if _is_error_result(r.get("result", {}))]
     return {
         "status":         "error" if failed else "ok",
         "name":           name,
@@ -205,4 +239,14 @@ def delete_macro(name: str) -> dict:
 
     del macros[name]
     _save_macros(macros)
-    return {"status": "ok", "message": f"已刪�
+    return {"status": "ok", "message": f"已刪除巨集「{name}」"}
+
+
+def get_macro_steps(name: str) -> list[dict]:
+    """
+    取得巨集的步驟清單（供 UI 展示，不執行）。
+    找不到時回傳空清單。
+    """
+    macros = _load_macros()
+    macro  = macros.get((name or "").strip())
+    return macro.get("steps", []) if macro else []

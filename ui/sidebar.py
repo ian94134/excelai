@@ -434,4 +434,88 @@ def _render_selection_status() -> None:
         if wb:
             st.caption(f"　活頁簿：{wb}")
     else:
-        st.
+        st.caption("🎯 **目前選取**　（無選取）")
+
+
+def _render_macro_panel() -> None:
+    """巨集管理面板：列出 / 執行 / 錄製 / 刪除巨集（v4.7.0）。"""
+    import macro as _macro
+
+    with st.expander("🔴 巨集管理", expanded=False):
+        result = _macro.list_macros()
+        macros = result.get("macros", [])
+        pending = st.session_state.get("_pending_macro_confirm")
+
+        if pending:
+            st.warning(f"巨集「{pending['name']}」包含危險工具，請確認是否執行。")
+            for step in pending.get("dangerous_steps", []):
+                st.caption(f"第 {step['index']} 步：`{step['tool']}`")
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                if st.button("確認執行", key="confirm_macro_run", type="primary", use_container_width=True):
+                    run_result = _macro.run_macro(pending["name"], confirm_dangerous=True)
+                    st.session_state.pop("_pending_macro_confirm", None)
+                    if run_result.get("status") == "ok":
+                        st.toast(f"✅ {run_result['message']}", icon="🔴")
+                    else:
+                        st.error(run_result.get("message", "執行失敗"))
+                    st.rerun()
+            with cancel_col:
+                if st.button("取消", key="cancel_macro_run", use_container_width=True):
+                    st.session_state.pop("_pending_macro_confirm", None)
+                    st.rerun()
+            st.divider()
+
+        if not macros:
+            st.caption("尚無已儲存的巨集。執行一些操作後，可在下方錄製。")
+        else:
+            st.caption(f"已儲存 {len(macros)} 個巨集：")
+            for m in macros:
+                col_info, col_run, col_del = st.columns([3, 1, 1])
+                with col_info:
+                    desc = m.get("description") or ""
+                    st.markdown(
+                        f"**{m['name']}**　{m['step_count']} 步"
+                        + (f"\n\n_{desc}_" if desc else "")
+                    )
+                with col_run:
+                    if st.button("▶", key=f"run_macro_{m['name']}", help=f"執行「{m['name']}」"):
+                        run_result = _macro.run_macro(m["name"])
+                        if run_result.get("requires_confirmation"):
+                            st.session_state["_pending_macro_confirm"] = {
+                                "name": run_result["name"],
+                                "dangerous_steps": run_result.get("dangerous_steps", []),
+                            }
+                            st.warning(run_result.get("message", "此巨集包含危險工具，請確認後再執行"))
+                        elif run_result.get("status") == "ok":
+                            st.toast(f"✅ {run_result['message']}", icon="🔴")
+                        else:
+                            st.error(run_result.get("message", "執行失敗"))
+                        st.rerun()
+                with col_del:
+                    if st.button("🗑", key=f"del_macro_{m['name']}", help=f"刪除「{m['name']}」"):
+                        _macro.delete_macro(m["name"])
+                        st.toast(f"已刪除巨集「{m['name']}」", icon="🗑️")
+                        st.rerun()
+
+        st.divider()
+        st.caption("**錄製新巨集**（從最近操作歷史）")
+        macro_name = st.text_input(
+            "巨集名稱",
+            key="new_macro_name",
+            placeholder="如：月報格式化",
+            label_visibility="collapsed",
+        )
+        macro_desc = st.text_input(
+            "說明（可省略）",
+            key="new_macro_desc",
+            placeholder="說明這個巨集的用途",
+            label_visibility="collapsed",
+        )
+        if st.button("🔴 錄製", use_container_width=True, disabled=not macro_name.strip()):
+            rec_result = _macro.record_macro(macro_name.strip(), macro_desc.strip())
+            if rec_result.get("status") == "ok":
+                st.toast(f"✅ {rec_result['message']}", icon="🔴")
+                st.rerun()
+            else:
+                st.error(rec_result.get("message", "錄製失敗"))

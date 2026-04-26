@@ -93,4 +93,6 @@ from excel.sheet import (
     rename_sheet,
     restore_snapshot,
     snapshot_sheet,
-    switch_
+    switch_workbook,
+    unprotect_sheet,
+)

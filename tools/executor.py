@@ -82,7 +82,7 @@ TOOL_MAP = {
     # ── V4.7.0 A：巨集工具 ────────────────────────────────────────────────────
     "record_macro":           lambda a: __import__("macro").record_macro(**a),
     "list_macros":            lambda _: __import__("macro").list_macros(),
-    "run_macro":              lambda a: __import__("macro").run_macro(**a),
+    "run_macro":              lambda a: __import__("macro").run_macro(a.get("name", "")),
     "delete_macro":           lambda a: __import__("macro").delete_macro(**a),
     # ── V4.7.0 B：公式智慧輔助 ────────────────────────────────────────────────
     "validate_formula":       lambda a: __import__("formula_validator").validate_formula_tool(**a),
@@ -102,6 +102,22 @@ TOOL_MAP.update(get_registered_tool_map())
 DANGEROUS_TOOLS = {"delete_row", "delete_column", "find_replace", "clear_range", "split_text_to_columns", "delete_sheet"}
 
 
+def _is_error_payload(payload: object) -> bool:
+    return isinstance(payload, dict) and (
+        "error" in payload or payload.get("status") == "error"
+    )
+
+
+def _ensure_error_field(payload: dict, tool_name: str) -> dict:
+    if "error" in payload:
+        return payload
+    normalized = dict(payload)
+    normalized["error"] = str(
+        normalized.get("message") or f"工具「{tool_name}」回傳錯誤狀態"
+    )
+    return normalized
+
+
 def execute(tool_name: str, arguments: dict) -> str:
     """
     執行單一工具，回傳 JSON 字串供 LLM 讀取。
@@ -115,8 +131,30 @@ def execute(tool_name: str, arguments: dict) -> str:
       `session_state["_backup_stack"]`（上限 20 步）。Phase 1 僅累積不啟用 Undo，
       Phase 2 才會新增 undo_last 工具與側邊欄按鈕消費這個 stack。
     """
+    arguments = dict(arguments or {})
+    confirmed_dangerous = bool(arguments.pop("confirm_dangerous", False))
     args_h = hash_args(arguments)
     start = time.perf_counter()
+
+    if tool_name in DANGEROUS_TOOLS and not confirmed_dangerous:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        _log.info("dangerous_tool_confirmation_required", extra={
+            "tool": tool_name, "args_hash": args_h,
+            "duration_ms": duration_ms, "status": "blocked",
+            "error_type": "DangerousToolRequiresConfirmation",
+        })
+        telemetry.record(tool_name, duration_ms, "error", "DangerousToolRequiresConfirmation")
+        return json.dumps(
+            {
+                "status": "error",
+                "error": f"工具「{tool_name}」屬於危險操作，請確認後再執行",
+                "error_type": "DangerousToolRequiresConfirmation",
+                "requires_confirmation": True,
+                "tool": tool_name,
+                "arguments": arguments,
+            },
+            ensure_ascii=False,
+        )
 
     # Phase 2：執行前抓 backup entry（失敗不影響主流程）
     backup_entry = None
@@ -153,7 +191,7 @@ def execute(tool_name: str, arguments: dict) -> str:
         # Phase 4 (TD-03)：欄寬 / 列高 捕捉（set_column_width / set_row_height / auto_fit）
         if backup_entry is not None and tool_name == "set_column_width":
             try:
-                col_idx  = arguments.get("col_index", 1)
+                col_idx  = arguments.get("column_index", arguments.get("col_index", 1))
                 count    = arguments.get("count", 1)
                 sheet    = arguments.get("sheet")
                 backup_entry.widths_before = et.capture_widths_before(col_idx, count, sheet)
@@ -203,6 +241,17 @@ def execute(tool_name: str, arguments: dict) -> str:
         result = fn(arguments)
         duration_ms = int((time.perf_counter() - start) * 1000)
 
+        if _is_error_payload(result):
+            result = _ensure_error_field(result, tool_name)
+            err_type = str(result.get("error_type") or "ToolReturnedError")
+            _log.info("tool_failed", extra={
+                "tool": tool_name, "args_hash": args_h,
+                "duration_ms": duration_ms, "status": "error",
+                "error_type": err_type,
+            })
+            telemetry.record(tool_name, duration_ms, "error", err_type)
+            return json.dumps(result, ensure_ascii=False, default=str)
+
         # Phase 2：執行成功後把 entry 推入 stack
         if backup_entry is not None:
             stack = backup.get_session_stack()
@@ -247,11 +296,14 @@ def execute(tool_name: str, arguments: dict) -> str:
         )
 
 
-def execute_batch(steps: list[dict]) -> list[dict]:
+def execute_batch(steps: list[dict], *, confirm_dangerous: bool = False) -> list[dict]:
     """
     Execute a batch of tool calls; auto-rollback on first error.
 
     Each step: {"tool": str, "args": dict}
+    confirm_dangerous=True is only for already-confirmed batch runners such as
+    macro replay; normal callers should let execute() return a confirmation
+    request for dangerous tools.
     Returns list of {"tool": str, "result": dict, "rolled_back": bool}
     """
     import json as _json
@@ -262,14 +314,17 @@ def execute_batch(steps: list[dict]) -> list[dict]:
 
     for step in steps:
         tool_name = step.get("tool", "")
-        arguments = step.get("args", {})
+        arguments = dict(step.get("args", {}) or {})
+        if confirm_dangerous and tool_name in DANGEROUS_TOOLS:
+            arguments["confirm_dangerous"] = True
         raw = execute(tool_name, arguments)
         try:
             parsed = _json.loads(raw)
         except Exception:
             parsed = {"raw": raw}
 
-        if "error" in parsed:
+        if _is_error_payload(parsed):
+            parsed = _ensure_error_field(parsed, tool_name)
             if stack is not None:
                 while len(stack) > depth_before:
                     entry = stack.pop()

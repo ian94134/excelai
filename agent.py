@@ -152,6 +152,9 @@ def _enrich_error_result(tool_name: str, result_json: str) -> str:
     except Exception:
         return result_json
 
+    if "error" not in payload and payload.get("status") == "error":
+        payload["error"] = payload.get("message", "工具回傳錯誤狀態")
+
     if "error" not in payload:
         return result_json
 
@@ -376,7 +379,7 @@ def run_turn(
                             _parsed = json.loads(result_json)
                         except Exception:
                             _parsed = {}
-                        has_err = "error" in _parsed
+                        has_err = "error" in _parsed or _parsed.get("status") == "error"
 
                         # Enrich error result with actionable hint for the LLM
                         if has_err:

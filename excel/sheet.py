@@ -25,7 +25,13 @@ from exceptions import (
     SheetNotFoundError,
     InvalidToolArgumentsError,
 )
-from excel._base import _get_excel, _get_sheet, _com_tls
+from excel._base import (
+    _ensure_positive_int,
+    _get_excel,
+    _get_sheet,
+    _normalize_values,
+    _com_tls,
+)
 
 def insert_row(index: int, count: int = 1, sheet: str | None = None) -> dict:
     _ensure_positive_int("index", index)
@@ -54,7 +60,7 @@ def insert_column(index: int, count: int = 1, sheet: str | None = None) -> dict:
     _ensure_positive_int("count", count)
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
-    ws.Columns(f"{index}:{index + count - 1}").Insert()
+    ws.Range(ws.Columns(index), ws.Columns(index + count - 1)).Insert()
     return {"status": "ok", "inserted_at": index, "count": count}
 
 
@@ -64,7 +70,7 @@ def delete_column(index: int, count: int = 1, sheet: str | None = None) -> dict:
     _ensure_positive_int("count", count)
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
-    ws.Columns(f"{index}:{index + count - 1}").Delete()
+    ws.Range(ws.Columns(index), ws.Columns(index + count - 1)).Delete()
     return {"status": "ok", "deleted_at": index, "count": count}
 
 
@@ -347,7 +353,7 @@ def group_columns(
 
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
-    col_range = ws.Columns(f"{start_col}:{end_col}")
+    col_range = ws.Range(ws.Columns(start_col), ws.Columns(end_col))
 
     if action == "group":
         col_range.Group()
@@ -470,10 +476,25 @@ def copy_range_between_workbooks(
             f"找不到活頁簿「{name}」。目前開啟：{available}"
         )
 
+    def _get_ws(wb, sheet_name):
+        if wb is None:
+            raise NoActiveWorkbookError("沒有作用中的活頁簿")
+        if sheet_name:
+            try:
+                return wb.Worksheets(sheet_name)
+            except Exception as e:
+                existing = [wb.Worksheets(i).Name for i in range(1, wb.Worksheets.Count + 1)]
+                raise SheetNotFoundError(
+                    f"找不到工作表 '{sheet_name}'。目前可用的工作表：{existing}"
+                ) from e
+        if excel.ActiveWorkbook is not None and wb.Name == excel.ActiveWorkbook.Name:
+            return excel.ActiveSheet
+        return wb.Worksheets(1)
+
     src_wb_obj = _get_wb(source_wb)
     dst_wb_obj = _get_wb(dest_wb)
-    src_ws = _get_sheet(src_wb_obj, source_sheet)
-    dst_ws = _get_sheet(dst_wb_obj, dest_sheet)
+    src_ws = _get_ws(src_wb_obj, source_sheet)
+    dst_ws = _get_ws(dst_wb_obj, dest_sheet)
 
     src_rng = src_ws.Range(source_range)
     values  = _normalize_values(src_rng.Value)
@@ -487,8 +508,11 @@ def copy_range_between_workbooks(
     end     = start.Offset(rows - 1, cols - 1)
     dst_rng = dst_ws.Range(start, end)
 
-    padded = [row + [None] * (cols - len(row)) for row in values]
-    dst_rng.Value = padded
+    if values_only:
+        padded = [row + [None] * (cols - len(row)) for row in values]
+        dst_rng.Value = padded
+    else:
+        src_rng.Copy(Destination=start)
 
     return {
         "status":      "ok",
@@ -496,8 +520,8 @@ def copy_range_between_workbooks(
         "destination": f"{dst_wb_obj.Name}/{dst_ws.Name}!{dst_rng.Address}",
         "rows":        rows,
         "cols":        cols,
+        "values_only": values_only,
     }
 
 
 # ── Phase 2 Undo ──────────────────────────────────────────────────────────────
-

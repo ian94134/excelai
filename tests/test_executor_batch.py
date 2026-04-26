@@ -48,6 +48,15 @@ def _err(tool: str, msg: str = "boom") -> str:
     return json.dumps({"error": msg, "tool": tool, "error_type": "TestError"})
 
 
+def _status_err(tool: str, msg: str = "blocked") -> str:
+    return json.dumps({
+        "status": "error",
+        "message": msg,
+        "tool": tool,
+        "error_type": "StatusError",
+    })
+
+
 def _steps(*names: str) -> list[dict]:
     return [{"tool": n, "args": {}} for n in names]
 
@@ -106,6 +115,19 @@ def test_empty_steps_returns_empty(mock_exec, no_stack):
     mock_exec.assert_not_called()
 
 
+def test_confirmed_batch_marks_dangerous_steps(mock_exec, no_stack):
+    mock_exec.return_value = _ok("delete_row")
+    results = execute_batch(
+        [{"tool": "delete_row", "args": {"index": 3}}],
+        confirm_dangerous=True,
+    )
+    assert results[0]["rolled_back"] is False
+    mock_exec.assert_called_once_with(
+        "delete_row",
+        {"index": 3, "confirm_dangerous": True},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests — failure path
 # ---------------------------------------------------------------------------
@@ -139,6 +161,15 @@ def test_error_payload_preserved(mock_exec, no_stack):
     mock_exec.return_value = _err("t", "something went wrong")
     results = execute_batch(_steps("t"))
     assert results[0]["result"]["error"] == "something went wrong"
+
+
+def test_status_error_payload_stops_batch(mock_exec, no_stack):
+    mock_exec.side_effect = [_ok("a"), _status_err("b"), _ok("c")]
+    results = execute_batch(_steps("a", "b", "c"))
+    assert len(results) == 2
+    assert all(r["rolled_back"] is True for r in results)
+    assert results[1]["result"]["error"] == "blocked"
+    assert mock_exec.call_count == 2
 
 
 # ---------------------------------------------------------------------------

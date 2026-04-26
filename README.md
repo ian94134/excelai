@@ -10,7 +10,7 @@ Streamlit + `pywin32` 自然語言控制桌面版 Excel 的 AI 助手。
 | LLM 端 | OpenAI 相容介面，預設本地 Qwen |
 | 預設端點 | `http://140.96.96.16:8079/v1` |
 | 工具數量 | **71 個**（含 6 個危險工具需確認） |
-| 測試套件 | `pytest -q` → **249 passed** |
+| 測試套件 | `pytest -q`（單元/契約測試；Excel COM smoke 預設 skip） |
 
 ## 系統需求
 
@@ -40,6 +40,23 @@ streamlit run main.py
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
+```
+
+完整工具 smoke 測試：
+
+```bash
+# 需要 Windows、pywin32、可啟動的 Microsoft Excel
+$env:EXCEL_AI_RUN_COM_SMOKE = "1"
+pytest -q tests/test_tool_smoke.py
+
+# 或從 repo root 執行
+npm run test:tools-smoke
+```
+
+`tools_smoke_test.py` 會用隔離的 Excel instance 建立暫存活頁簿並跑完 71 個工具。預設輸出到系統 temp 目錄；若要保留報告，可用：
+
+```bash
+python tools_smoke_test.py --output-dir $env:TEMP\excel_ai_tool_smoke
 ```
 
 ## 功能摘要
@@ -139,6 +156,7 @@ excel-ai/
     ├── test_backup_persist.py
     ├── test_complexity.py
     ├── test_executor_batch.py
+    ├── test_executor_safety.py
     ├── test_formula_validator.py
     ├── test_macro.py
     ├── test_main_helpers.py
@@ -147,6 +165,7 @@ excel-ai/
     ├── test_selection_inject.py
     ├── test_session.py
     ├── test_session_compress.py
+    ├── test_tool_smoke.py
     └── test_tools_schema.py
 ```
 

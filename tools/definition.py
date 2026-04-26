@@ -1675,7 +1675,8 @@ OPENAI_TOOLS = [
             "name": "run_macro",
             "description": (
                 "執行已儲存的巨集。失敗時自動回滾已執行步驟。\n"
-                "不確定名稱時先呼叫 list_macros 確認。"
+                "不確定名稱時先呼叫 list_macros 確認。\n"
+                "若巨集包含危險工具，會回傳 requires_confirmation，不會直接執行。"
             ),
             "parameters": {
                 "type": "object",

@@ -388,6 +388,3 @@ def _load_stack() -> "BackupStack | None":
         return stack if len(stack) > 0 else None
     except Exception:
         return None
-
-
-# ── BackupStack（20 步上限，FIFO 丟棄最舊） ────────────────�

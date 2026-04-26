@@ -44,6 +44,20 @@ _NUMERIC_OPS: dict[str, Any] = {
 }
 
 _STRING_OPS = {"contains", "startswith", "endswith", "isblank", "notblank"}
+_OPERATOR_ALIASES = {
+    "eq": "=",
+    "equals": "=",
+    "equal": "=",
+    "ne": "!=",
+    "not_equals": "!=",
+    "not_equal": "!=",
+    "gt": ">",
+    "lt": "<",
+    "gte": ">=",
+    "ge": ">=",
+    "lte": "<=",
+    "le": "<=",
+}
 
 
 def _coerce(value: Any) -> Any:
@@ -56,13 +70,44 @@ def _coerce(value: Any) -> Any:
     return value
 
 
+def _normalize_operator(value: Any) -> str:
+    op_str = str(value or "=").strip().lower()
+    return _OPERATOR_ALIASES.get(op_str, op_str)
+
+
+def _resolve_column_index(column: Any, headers: list[str]) -> int:
+    if isinstance(column, int) and not isinstance(column, bool):
+        return column
+    if isinstance(column, float) and column.is_integer():
+        return int(column)
+    if isinstance(column, str):
+        text = column.strip()
+        if text.isdigit():
+            return int(text)
+        lowered = text.lower()
+        for index, header in enumerate(headers, start=1):
+            if header.strip().lower() == lowered:
+                return index
+        return len(headers) + 1 if headers else 0
+    return 0
+
+
+def _normalize_filter_condition(condition: dict, headers: list[str]) -> dict:
+    normalized = dict(condition)
+    normalized["column"] = _resolve_column_index(condition.get("column", 1), headers)
+    normalized["operator"] = _normalize_operator(
+        condition.get("operator", condition.get("op", "="))
+    )
+    return normalized
+
+
 def _apply_filter(row: list[Any], condition: dict) -> bool:
     """
     對單列套用一個過濾條件。
     column 為 1-based 欄號。不合法條件預設通過（寬鬆策略）。
     """
-    col_idx = condition.get("column", 1)
-    op_str  = str(condition.get("operator", "=")).strip().lower()
+    col_idx = _resolve_column_index(condition.get("column", 1), [])
+    op_str  = _normalize_operator(condition.get("operator", condition.get("op", "=")))
     cond_val = condition.get("value", "")
 
     if col_idx < 1 or col_idx > len(row):
@@ -152,7 +197,12 @@ def _query_data(
     cond = _parse_condition_json(condition_json)
     agg  = _parse_condition_json(aggregation_json)
 
-    filters  = cond.get("filters", [])
+    raw_filters = cond.get("filters", [])
+    filters = [
+        _normalize_filter_condition(f, headers)
+        for f in raw_filters
+        if isinstance(f, dict)
+    ]
     sort_by  = cond.get("sort_by")
     top_n    = cond.get("top_n")
 
@@ -167,7 +217,7 @@ def _query_data(
     # ── 排序 ──────────────────────────────────────────────────────────────────
     sort_applied = False
     if sort_by and isinstance(sort_by, dict):
-        col_idx = sort_by.get("column", 1)
+        col_idx = _resolve_column_index(sort_by.get("column", 1), headers)
         desc    = bool(sort_by.get("descending", False))
         if 1 <= col_idx <= (len(headers) or (len(filtered[0]) if filtered else 0)):
             def _sort_key(row):
@@ -193,7 +243,7 @@ def _query_data(
     agg_result = None
     if agg:
         func     = str(agg.get("function", "count")).lower()
-        agg_col  = agg.get("column", 1)
+        agg_col  = _resolve_column_index(agg.get("column", 1), headers)
         label    = agg.get("label", "")
 
         if func == "count":

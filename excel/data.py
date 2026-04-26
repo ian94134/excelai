@@ -792,8 +792,8 @@ def split_text_to_columns(
         Other=not is_preset,
         OtherChar=delimiter if not is_preset else "",
     )
+    return {"status": "ok", "range": range_addr, "delimiter": delimiter, "sheet": sheet}
 
 
 # ── 工作表快照（突破 undo 20 步限制）────────────────────────────────────────
-
 

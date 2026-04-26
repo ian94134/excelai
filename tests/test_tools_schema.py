@@ -14,7 +14,11 @@
 """
 
 from __future__ import annotations
+import ast
+import importlib
+import inspect
 import re
+from pathlib import Path
 import pytest
 
 # 無 win32com 的環境（例如 Linux CI）可能讓 tools.executor 載入失敗（因為會連帶 import excel_tools）
@@ -120,6 +124,123 @@ def test_backup_needed_covers_all_tools():
     tool_names = set(TOOL_MAP.keys())
     missing = tool_names - set(backup.BACKUP_NEEDED.keys())
     assert not missing, f"backup.BACKUP_NEEDED 未涵蓋：{missing}"
+
+
+def _legacy_tool_map_calls() -> dict[str, ast.Call]:
+    executor_path = Path(__file__).resolve().parent.parent / "tools" / "executor.py"
+    tree = ast.parse(executor_path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "TOOL_MAP" for t in node.targets):
+            continue
+        assert isinstance(node.value, ast.Dict)
+        calls: dict[str, ast.Call] = {}
+        for key, value in zip(node.value.keys, node.value.values):
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+            body = value.body if isinstance(value, ast.Lambda) else value
+            assert isinstance(body, ast.Call), f"{key.value} executor entry must call an implementation"
+            calls[key.value] = body
+        return calls
+    raise AssertionError("TOOL_MAP assignment not found")
+
+
+def _target_from_call(call: ast.Call) -> tuple[str, str] | None:
+    fn = call.func
+    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name) and fn.value.id == "et":
+        return "excel_tools", fn.attr
+    if (
+        isinstance(fn, ast.Attribute)
+        and isinstance(fn.value, ast.Call)
+        and isinstance(fn.value.func, ast.Name)
+        and fn.value.func.id == "__import__"
+        and fn.value.args
+        and isinstance(fn.value.args[0], ast.Constant)
+    ):
+        return str(fn.value.args[0].value), fn.attr
+    return None
+
+
+def _uses_kwargs(call: ast.Call) -> bool:
+    return any(keyword.arg is None for keyword in call.keywords)
+
+
+def _mapping_get_keys(call: ast.Call) -> set[str]:
+    keys: set[str] = set()
+    for node in ast.walk(call):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "a"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+        ):
+            continue
+        keys.add(str(node.args[0].value))
+    return keys
+
+
+@pytest.mark.skipif(not _EXECUTOR_OK, reason="tools.executor 無法載入")
+def test_tool_schema_parameters_match_executor_signatures():
+    """Schema 宣告的參數名必須能被 executor 實際呼叫的函式接受。"""
+    schemas = {t["function"]["name"]: t["function"]["parameters"] for t in SCHEMAS}
+    errors: list[str] = []
+
+    for tool_name, call in _legacy_tool_map_calls().items():
+        target = _target_from_call(call)
+        if target is None:
+            errors.append(f"{tool_name}: 無法解析 executor call: {ast.unparse(call)}")
+            continue
+
+        module_name, func_name = target
+        fn = getattr(importlib.import_module(module_name), func_name)
+        schema = schemas[tool_name]
+        properties = set(schema.get("properties", {}))
+        required = set(schema.get("required", []))
+
+        if _uses_kwargs(call):
+            signature = inspect.signature(fn)
+            accepts_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in signature.parameters.values()
+            )
+            accepted = {
+                name
+                for name, p in signature.parameters.items()
+                if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+            }
+            required_by_signature = {
+                name
+                for name, p in signature.parameters.items()
+                if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+                and p.default is inspect.Signature.empty
+            }
+
+            if not accepts_var_kw:
+                extra = properties - accepted
+                if extra:
+                    errors.append(
+                        f"{tool_name}: schema properties not accepted by {func_name}{signature}: {sorted(extra)}"
+                    )
+            missing_required = required_by_signature - required
+            if missing_required:
+                errors.append(
+                    f"{tool_name}: required function params missing from schema.required: {sorted(missing_required)}"
+                )
+        else:
+            accepted = _mapping_get_keys(call)
+            extra = properties - accepted
+            missing_required = required - accepted
+            if extra or missing_required:
+                errors.append(
+                    f"{tool_name}: executor only reads {sorted(accepted)}, "
+                    f"schema properties={sorted(properties)}, required={sorted(required)}"
+                )
+
+    assert not errors, "\n".join(errors)
 
 
 # ---------------------------------------------------------------------------
