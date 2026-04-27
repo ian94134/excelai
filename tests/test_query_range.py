@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from excel_query import _query_data, _apply_filter, _coerce
+from excel_query import _query_data, _apply_filter, _coerce, query_range
 
 
 # ── 測試資料 ──────────────────────────────────────────────────────────────────
@@ -241,6 +241,47 @@ def test_invalid_condition_json_treated_as_no_filter():
 def test_empty_condition_json():
     r = _query_data(SAMPLE_DATA, condition_json="")
     assert r["filtered_count"] == 6
+
+
+def test_query_range_accepts_structured_filter_sort_top_n(monkeypatch):
+    monkeypatch.setattr("excel_tools.read_range", lambda range_addr, sheet=None: SAMPLE_DATA)
+    r = query_range(
+        "A1:D7",
+        filters=[{"column": "部門", "operator": "=", "value": "業務"}],
+        sort_by={"column": "業績", "descending": True},
+        top_n=2,
+    )
+    assert r["filtered_count"] == 2
+    assert [row[0] for row in r["filtered_rows"]] == ["Carol", "Eve"]
+    assert r["sort_applied"] is True
+    assert r["top_n_applied"] is True
+
+
+def test_query_range_splits_sheet_qualified_range(monkeypatch):
+    captured = {}
+
+    def _read_range(range_addr, sheet=None):
+        captured["range_addr"] = range_addr
+        captured["sheet"] = sheet
+        return SAMPLE_DATA
+
+    monkeypatch.setattr("excel_tools.read_range", _read_range)
+    r = query_range(
+        "'Sales Data'!A1:D7",
+        filters=[{"column": "部門", "operator": "=", "value": "業務"}],
+    )
+    assert captured == {"range_addr": "A1:D7", "sheet": "Sales Data"}
+    assert r["filtered_count"] == 3
+
+
+def test_query_range_accepts_structured_aggregation(monkeypatch):
+    monkeypatch.setattr("excel_tools.read_range", lambda range_addr, sheet=None: SAMPLE_DATA)
+    r = query_range(
+        "A1:D7",
+        filters=[{"column": "部門", "operator": "=", "value": "業務"}],
+        aggregation={"function": "sum", "column": "業績"},
+    )
+    assert r["aggregation"]["value"] == 15000 + 22000 + 18000
 
 
 def test_coerce_string_to_int():

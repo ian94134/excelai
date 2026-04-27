@@ -1763,6 +1763,23 @@ OPENAI_TOOLS = [
                     "range_addr":       {"type": "string",  "description": "要查詢的範圍（如 'A1:F100'）"},
                     "condition_json":   {"type": "string",  "description": "過濾/排序/top_n 條件，JSON 字串"},
                     "aggregation_json": {"type": "string",  "description": "聚合設定，JSON 字串"},
+                    "filters": {
+                        "type": "array",
+                        "description": (
+                            "結構化過濾條件清單；可替代 condition_json。"
+                            "每個條件如 {\"column\": \"Region\", \"operator\": \"=\", \"value\": \"North\"}"
+                        ),
+                        "items": {"type": "object"},
+                    },
+                    "sort_by": {
+                        "type": "object",
+                        "description": "結構化排序設定；如 {\"column\": \"Revenue\", \"descending\": true}",
+                    },
+                    "top_n": {"type": "integer", "description": "排序/過濾後只回傳前 N 筆"},
+                    "aggregation": {
+                        "type": "object",
+                        "description": "結構化聚合設定；如 {\"function\": \"sum\", \"column\": \"Revenue\"}",
+                    },
                     "has_header":       {"type": "boolean", "description": "第一列是否為標題（預設 true）"},
                     "sheet":            {"type": "string",  "description": "工作表名稱；省略時用作用中工作表"},
                 },

@@ -96,7 +96,7 @@ def _build_selection_tag() -> str:
 # 唯讀工具集合（執行後記錄到 _read_op_log，不進 BackupStack）
 _READ_ONLY_TOOLS = {
     "read_range", "get_sheet_info", "get_used_range", "get_workbook_summary",
-    "summarize_range", "find_duplicates",
+    "summarize_range", "find_duplicates", "query_range", "list_workbooks",
 }
 
 # ── 複雜任務自動偵測 ──────────────────────────────────────────────────────────

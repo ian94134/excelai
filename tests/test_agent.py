@@ -321,6 +321,36 @@ def test_repeat_halt_message_content(no_stack, mock_execute):
     assert halt_msgs and "重複" in halt_msgs[0]
 
 
+def test_repeated_query_range_returns_cached_summary(no_stack, mock_execute):
+    """If the model repeats an already-successful query, answer from the cached result."""
+    query_result = {
+        "headers": ["OrderID", "Region", "Revenue", "Status"],
+        "filtered_rows": [["ORD-0010", "North", 25000, "Won"]],
+        "filtered_count": 1,
+    }
+    mock_execute.return_value = json.dumps(query_result)
+    tc = _tc("query_range", {
+        "range_addr": "SalesData!A1:N20",
+        "condition_json": json.dumps({"filters": [{"column": "Region", "operator": "=", "value": "North"}]}),
+    })
+    call_count = [0]
+
+    def _stream(msgs, tools):
+        call_count[0] += 1
+        raw = {"role": "assistant", "content": None,
+               "tool_calls": [{"id": tc.id, "type": "function",
+                                "function": {"name": tc.name,
+                                             "arguments": json.dumps(tc.arguments)}}]}
+        yield ("tool_calls", LLMResponse(text=None, tool_calls=[tc], raw_assistant_message=raw))
+
+    provider = _make_provider(_stream)
+    events = list(run_turn(_msgs, [], provider, dangerous_tools=set()))
+    done_msg = next(d for k, d in events if k == EVT_DONE)
+    assert "ORD-0010" in done_msg
+    assert "停止重複執行" in done_msg
+    assert mock_execute.call_count == 1
+
+
 # ── Error and rollback ────────────────────────────────────────────────────────
 
 def test_error_tool_done_has_error_true(no_stack, mock_execute):

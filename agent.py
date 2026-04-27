@@ -138,6 +138,84 @@ _DEFAULT_HINT = (
     "取得當前工作表狀態後再重試。"
 )
 
+_REPEAT_SUMMARY_TOOLS = {
+    "read_range",
+    "get_used_range",
+    "get_sheet_info",
+    "get_workbook_summary",
+    "query_range",
+    "summarize_range",
+    "find_duplicates",
+    "list_workbooks",
+}
+
+
+def _markdown_table(headers: list[Any], rows: list[list[Any]], max_rows: int = 8) -> str:
+    safe_headers = [str(h) if h is not None else "" for h in headers]
+    safe_rows = rows[:max_rows]
+    if not safe_headers and safe_rows:
+        safe_headers = [f"欄{i + 1}" for i in range(max(len(r) for r in safe_rows))]
+    if not safe_headers:
+        return ""
+
+    def _cell(value: Any) -> str:
+        text = "" if value is None else str(value)
+        return text.replace("|", "\\|").replace("\n", " ")
+
+    lines = [
+        "| " + " | ".join(_cell(h) for h in safe_headers) + " |",
+        "| " + " | ".join("---" for _ in safe_headers) + " |",
+    ]
+    for row in safe_rows:
+        padded = list(row) + [""] * max(0, len(safe_headers) - len(row))
+        lines.append("| " + " | ".join(_cell(v) for v in padded[:len(safe_headers)]) + " |")
+    return "\n".join(lines)
+
+
+def _summarize_repeated_tool_result(tool_name: str, result_json: str) -> str:
+    """
+    Build a user-facing answer when the LLM repeats an already-successful
+    read/query tool call instead of using the returned data.
+    """
+    try:
+        payload = json.loads(result_json)
+    except Exception:
+        payload = result_json
+
+    prefix = (
+        f"工具 `{tool_name}` 已成功取得結果；AI 又重複呼叫同一工具，"
+        "已停止重複執行並直接呈現上次結果。"
+    )
+
+    if tool_name == "get_used_range" and isinstance(payload, str):
+        return f"{prefix}\n\n已使用範圍：`{payload}`"
+
+    if tool_name == "read_range" and isinstance(payload, list):
+        if payload and all(isinstance(row, list) for row in payload):
+            headers = payload[0] if payload and all(isinstance(v, str) for v in payload[0]) else []
+            rows = payload[1:] if headers else payload
+            table = _markdown_table(headers, rows)
+            suffix = f"\n\n共 {len(rows)} 列，顯示前 {min(len(rows), 8)} 列。"
+            return f"{prefix}{suffix}\n\n{table}" if table else f"{prefix}{suffix}"
+        return f"{prefix}\n\n結果：`{payload}`"
+
+    if tool_name == "query_range" and isinstance(payload, dict):
+        headers = payload.get("headers", [])
+        rows = payload.get("filtered_rows", [])
+        filtered_count = payload.get("filtered_count", len(rows) if isinstance(rows, list) else 0)
+        if isinstance(headers, list) and isinstance(rows, list):
+            table = _markdown_table(headers, [r for r in rows if isinstance(r, list)])
+            msg = f"{prefix}\n\n符合條件：{filtered_count} 筆，顯示前 {min(filtered_count, 8)} 筆。"
+            return f"{msg}\n\n{table}" if table else msg
+
+    if tool_name == "summarize_range" and isinstance(payload, dict):
+        pairs = [(k, v) for k, v in payload.items() if v is not None]
+        if pairs:
+            table = _markdown_table(["Metric", "Value"], [[k, v] for k, v in pairs])
+            return f"{prefix}\n\n{table}"
+
+    return f"{prefix}\n\n請展開上方工具結果查看完整內容。"
+
 
 def _enrich_error_result(tool_name: str, result_json: str) -> str:
     """
@@ -283,6 +361,7 @@ def run_turn(
 
     last_sig: tuple[str, str] | None = None
     same_count = 0
+    successful_results_by_sig: dict[tuple[str, str], str] = {}
 
     for _iter in range(max_iterations):
         has_tool_call = False
@@ -360,6 +439,19 @@ def run_turn(
                         else:
                             last_sig = sig
                             same_count = 1
+                        if (
+                            same_count >= 2
+                            and tc.name in _REPEAT_SUMMARY_TOOLS
+                            and sig in successful_results_by_sig
+                        ):
+                            yield (
+                                EVT_DONE,
+                                _summarize_repeated_tool_result(
+                                    tc.name,
+                                    successful_results_by_sig[sig],
+                                ),
+                            )
+                            return
                         if same_count >= 3:
                             halt_msg = (
                                 "⚠️ 偵測到 AI 連續重複呼叫相同工具參數，已停止本輪避免卡住。"
@@ -401,6 +493,8 @@ def run_turn(
                             backup_entry=entry,
                             has_error=has_err,
                         ))
+                        if not has_err:
+                            successful_results_by_sig[sig] = result_json
 
                         # ── Auto-rollback on error ─────────────────────────
                         # Roll back all successfully backed-up steps from this

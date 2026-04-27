@@ -142,15 +142,54 @@ def _apply_filter(row: list[Any], condition: dict) -> bool:
     return True  # 未知 operator → 不過濾
 
 
-def _parse_condition_json(condition_json: str) -> dict:
+def _parse_condition_json(condition_json: Any) -> dict:
     """解析 condition_json 字串，容錯處理。"""
-    if not condition_json or not condition_json.strip():
+    if isinstance(condition_json, dict):
+        return dict(condition_json)
+    if not condition_json or not str(condition_json).strip():
         return {}
     try:
         parsed = json.loads(condition_json)
         return parsed if isinstance(parsed, dict) else {}
     except (json.JSONDecodeError, ValueError):
         return {}
+
+
+def _merge_query_condition(
+    condition_json: Any = "",
+    *,
+    condition: Any = None,
+    filters: Any = None,
+    sort_by: Any = None,
+    top_n: Any = None,
+) -> str:
+    """Accept both JSON-string and structured query arguments from tool calls."""
+    merged = _parse_condition_json(condition_json)
+
+    if isinstance(condition, dict):
+        merged.update(condition)
+    elif isinstance(condition, list):
+        merged["filters"] = condition
+
+    if filters is not None:
+        merged["filters"] = filters
+    if sort_by is not None:
+        merged["sort_by"] = sort_by
+    if top_n is not None:
+        merged["top_n"] = top_n
+
+    return json.dumps(merged, ensure_ascii=False) if merged else ""
+
+
+def _split_sheet_qualified_range(range_addr: str, sheet: str | None = None) -> tuple[str, str | None]:
+    """Allow common inputs like Sheet1!A1:D10 or 'Sales Data'!A1:D10."""
+    if sheet or "!" not in str(range_addr):
+        return range_addr, sheet
+    sheet_part, addr_part = str(range_addr).split("!", 1)
+    sheet_name = sheet_part.strip()
+    if sheet_name.startswith("'") and sheet_name.endswith("'"):
+        sheet_name = sheet_name[1:-1].replace("''", "'")
+    return addr_part.strip(), sheet_name or sheet
 
 
 def _query_data(
@@ -291,10 +330,15 @@ def _query_data(
 
 def query_range(
     range_addr: str,
-    condition_json: str = "",
-    aggregation_json: str = "",
+    condition_json: Any = "",
+    aggregation_json: Any = "",
     has_header: bool = True,
     sheet: str | None = None,
+    condition: Any = None,
+    filters: Any = None,
+    sort_by: Any = None,
+    top_n: Any = None,
+    aggregation: Any = None,
 ) -> dict:
     """
     從 Excel 讀取範圍後，在記憶體內執行查詢（非破壞性）。
@@ -306,15 +350,31 @@ def query_range(
     aggregation_json: JSON 字串，描述聚合函數與目標欄
     has_header      : 第一列是否為標題（預設 True）
     sheet           : 工作表名稱；省略時用作用中工作表
+    condition/filters/sort_by/top_n:
+                    condition_json 的結構化替代參數，供模型直接傳物件/陣列
+    aggregation     : aggregation_json 的結構化替代參數
 
     Returns
     -------
     dict（含 headers / filtered_rows / aggregation 等欄位）
     """
     import excel_tools as et
+    range_addr, sheet = _split_sheet_qualified_range(range_addr, sheet)
     data = et.read_range(range_addr, sheet)
     if not isinstance(data, list):
         return {"error": f"read_range 回傳非預期格式：{type(data).__name__}"}
+
+    condition_json = _merge_query_condition(
+        condition_json,
+        condition=condition,
+        filters=filters,
+        sort_by=sort_by,
+        top_n=top_n,
+    )
+    if aggregation is not None and not aggregation_json:
+        aggregation_json = aggregation
+    if isinstance(aggregation_json, dict):
+        aggregation_json = json.dumps(aggregation_json, ensure_ascii=False)
 
     result = _query_data(data, condition_json, aggregation_json, has_header)
     result["range_addr"] = range_addr
