@@ -27,6 +27,10 @@ from exceptions import (
 )
 from excel._base import _get_excel, _get_sheet, _hex_to_bgr, _ensure_positive_int, _ensure_positive_number, _com_tls
 
+_INTERIOR_NONE_IDX = -4142  # xlColorIndexNone
+_ALL_BORDER_IDX = sorted({idx for indexes in XL_BORDER_SIDES.values() for idx in indexes})
+
+
 def capture_widths_before(col_start: int, count: int = 1, sheet: str | None = None) -> dict:
     """
     Read column widths (in points) before set_column_width / auto_fit so they
@@ -700,6 +704,5 @@ def add_image(
 
 
 # ── V4 分析工具群 ─────────────────────────────────────────────────────────────
-
 
 

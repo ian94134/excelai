@@ -554,6 +554,7 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
         placeholder.markdown("⏳ 思考中…")
         last_stream_render_at = 0.0
         last_stream_text = ""
+        backup_stack_changed = False
 
         # 自動規劃模式提示（使用者未手動開啟但被偵測觸發）
         if _auto_plan_triggered:
@@ -633,6 +634,8 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                     "role": "tool", "tool_call_id": tc.id,
                     "name": tc.name, "content": tex.result_json,
                 })
+                if tex.backup_entry is not None:
+                    backup_stack_changed = True
 
                 # 唯讀工具另外記錄到 _read_op_log
                 if tc.name in _READ_ONLY_TOOLS:
@@ -670,3 +673,6 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                 exc = data
                 placeholder.error(f"執行錯誤：{exc}")
                 _log.exception("main_loop_error", extra={"error_type": type(exc).__name__})
+
+        if backup_stack_changed:
+            st.rerun()

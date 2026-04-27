@@ -281,12 +281,7 @@ def restore(entry: BackupEntry) -> dict:
         rng_addr = args.get("range_addr", "")
         if rng_addr:
             try:
-                fmt = dict(entry.formats_before)
-                fmt.pop("_tool_type", None)
-                if name == "set_borders":
-                    et.set_borders(rng_addr, sheet=sheet, **fmt)
-                else:
-                    et.format_range(rng_addr, sheet=sheet, **fmt)
+                et._restore_formats(entry.formats_before, sheet)
                 return {"status": "ok", "undone": name, "method": "formats_restore"}
             except Exception as e:
                 return {"status": "error", "undone": name, "error": str(e)}

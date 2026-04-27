@@ -53,7 +53,10 @@ def undo_last() -> dict:
     if stack is None or len(stack) == 0:
         return {"status": "no_op", "message": "備份堆疊為空，沒有可還原的操作。"}
     entry = stack.pop()
-    return _undo_dispatch(entry)
+    try:
+        return _undo_dispatch(entry)
+    finally:
+        bk.save_current_stack()
 
 
 
@@ -251,4 +254,3 @@ def _undo_last_body(entry):
     return {"status": "cannot_undo", "tool": name, "message": reason}
 
     return {"status": "ok", "range": range_addr, "delimiter": delimiter}
-
