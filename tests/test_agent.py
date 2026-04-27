@@ -183,6 +183,29 @@ def test_single_tool_result_json(no_stack, mock_execute):
     assert json.loads(tex.result_json)["status"] == "ok"
 
 
+def test_string_tool_result_not_treated_as_error(no_stack, mock_execute):
+    """Tools such as get_used_range may return a JSON string payload."""
+    mock_execute.return_value = json.dumps("$A$1:$C$10")
+    provider = _make_provider(_tool_stream([_tc("get_used_range", {})]))
+    events = list(run_turn(_msgs, [], provider))
+    assert not any(k == EVT_ERROR for k, _ in events)
+    tex = next(d for k, d in events if k == EVT_TOOL_DONE)
+    assert tex.has_error is False
+    assert json.loads(tex.result_json) == "$A$1:$C$10"
+
+
+def test_list_tool_result_not_treated_as_error(no_stack, mock_execute):
+    """Tools such as read_range may return a JSON array payload."""
+    rows = [["Name", "Email"], ["Ada", "ada@example.com"]]
+    mock_execute.return_value = json.dumps(rows)
+    provider = _make_provider(_tool_stream([_tc("read_range", {"range_addr": "A1:B2"})]))
+    events = list(run_turn(_msgs, [], provider))
+    assert not any(k == EVT_ERROR for k, _ in events)
+    tex = next(d for k, d in events if k == EVT_TOOL_DONE)
+    assert tex.has_error is False
+    assert json.loads(tex.result_json) == rows
+
+
 def test_tool_execute_called_with_correct_args(no_stack, mock_execute):
     mock_execute.return_value = _ok_result()
     tc = _tc("format_range", {"range_addr": "A1:B2", "bold": True})

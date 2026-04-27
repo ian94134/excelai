@@ -152,6 +152,9 @@ def _enrich_error_result(tool_name: str, result_json: str) -> str:
     except Exception:
         return result_json
 
+    if not isinstance(payload, dict):
+        return result_json
+
     if "error" not in payload and payload.get("status") == "error":
         payload["error"] = payload.get("message", "工具回傳錯誤狀態")
 
@@ -171,6 +174,13 @@ def _enrich_error_result(tool_name: str, result_json: str) -> str:
         return json.dumps(payload, ensure_ascii=False)
     except Exception:
         return result_json
+
+
+def _payload_has_error(payload: object) -> bool:
+    """Return True only for dict payloads that carry tool error fields."""
+    return isinstance(payload, dict) and (
+        "error" in payload or payload.get("status") == "error"
+    )
 
 
 # ── Event kind constants ────────────────────────────────────────────────────
@@ -379,7 +389,7 @@ def run_turn(
                             _parsed = json.loads(result_json)
                         except Exception:
                             _parsed = {}
-                        has_err = "error" in _parsed or _parsed.get("status") == "error"
+                        has_err = _payload_has_error(_parsed)
 
                         # Enrich error result with actionable hint for the LLM
                         if has_err:
