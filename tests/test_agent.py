@@ -206,6 +206,34 @@ def test_list_tool_result_not_treated_as_error(no_stack, mock_execute):
     assert json.loads(tex.result_json) == rows
 
 
+def test_list_tool_result_can_continue_next_round(no_stack, mock_execute):
+    """Simulate the Streamlit caller appending a list result before the next LLM round."""
+    rows = [["Name", "Email"], ["Ada", "ada@example.com"]]
+    mock_execute.return_value = json.dumps(rows)
+    tc = _tc("read_range", {"range_addr": "A1:B2"})
+    messages = _msgs()
+
+    def get_messages():
+        return messages
+
+    provider = _make_provider(_tool_stream([tc], then_done="已讀取資料"))
+    events = []
+    for kind, data in run_turn(get_messages, [], provider):
+        events.append((kind, data))
+        if kind == EVT_ASST_MSG:
+            messages.append(data)
+        elif kind == EVT_TOOL_DONE:
+            messages.append({
+                "role": "tool",
+                "tool_call_id": data.tc.id,
+                "name": data.tc.name,
+                "content": data.result_json,
+            })
+
+    assert not any(k == EVT_ERROR for k, _ in events)
+    assert any(k == EVT_DONE and d == "已讀取資料" for k, d in events)
+
+
 def test_tool_execute_called_with_correct_args(no_stack, mock_execute):
     mock_execute.return_value = _ok_result()
     tc = _tc("format_range", {"range_addr": "A1:B2", "bold": True})
