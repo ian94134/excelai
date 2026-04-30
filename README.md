@@ -217,6 +217,16 @@ python -B tools_web_ui_smoke.py --case-set quick --workbook web_ui_quick_smoke_w
 
 `tools_web_ui_smoke.py` 需要 Playwright 才能自動操作瀏覽器；一般 `pytest` 不依賴 Playwright，只驗證 fixture、工具名 smoke case、白話 smoke case、快捷任務 prompt/表單選項與 UI 友善顯示規格。
 
+### Windows EXE 打包
+
+同事沒有 Python 環境時，請用 PyInstaller 產生 Windows 發佈包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows_exe.ps1
+```
+
+輸出會在 `dist\Excel AI Assistant\` 與 `dist\Excel-AI-Assistant-windows.zip`。交付時請給整個 zip 或整個資料夾，不要只給單一 exe，因為 `_internal` 目錄包含內嵌 Python runtime 與依賴套件。
+
 ## 常見問題
 
 ### Streamlit 開了但抓不到 Excel

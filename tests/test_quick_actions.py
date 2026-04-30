@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ui.quick_actions import (
     DEFAULT_QUICK_ACTION_OPTIONS,
+    DIRECT_EXECUTION_NOTE,
     QUICK_ACTIONS,
     QUICK_ACTION_FORM_CHOICES,
     build_quick_action_prompt,
@@ -61,6 +62,7 @@ def test_quick_action_prompts_do_not_expose_internal_tools():
         prompt = quick_action_prompt(action.key)
         assert_user_facing_prompt(prompt)
         assert "完成後" in prompt
+        assert DIRECT_EXECUTION_NOTE in prompt
 
 
 def test_quick_action_form_choices_cover_configurable_actions():
@@ -97,6 +99,22 @@ def test_configured_quick_action_prompts_include_user_options():
     assert "不要凍結表頭" in beautify_prompt
     assert "儲存檔案" in beautify_prompt
 
+    summary_prompt = build_quick_action_prompt(
+        "summarize_data",
+        {"write_to_report": False, "save_after": True},
+    )
+    assert_user_facing_prompt(summary_prompt)
+    assert "不要寫入任何工作表" in summary_prompt
+    assert "不要儲存檔案" in summary_prompt
+
+    writeback_summary_prompt = build_quick_action_prompt(
+        "summarize_data",
+        {"write_to_report": True, "save_after": True},
+    )
+    assert_user_facing_prompt(writeback_summary_prompt)
+    assert "寫入 Report 工作表" in writeback_summary_prompt
+    assert "儲存檔案" in writeback_summary_prompt
+
 
 def test_quick_action_options_merge_defaults():
     options = quick_action_options("summarize_data", {"depth": "詳細"})
@@ -104,6 +122,8 @@ def test_quick_action_options_merge_defaults():
     assert options == {
         "depth": "詳細",
         "include_recommendations": True,
+        "write_to_report": False,
+        "save_after": False,
     }
 
 

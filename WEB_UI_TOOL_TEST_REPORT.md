@@ -18,7 +18,9 @@ UI 版本：v4.8.0
 - 新增 5 個常用任務快捷按鈕：美化目前表格、產生資料摘要、查詢加總資料、建立報告圖表、復原上一步。
 - 快捷任務已升級為執行前設定面板，可選主題、摘要深度、分組欄位、加總欄位、圖表類型與放置位置。
 - in-app browser 實測已點擊「查詢加總資料」快捷任務，會先顯示設定面板，取消後可正常關閉。
+- in-app browser 實測「產生資料摘要」後發現原本會先產生計劃並自動寫入/儲存；已調整 prompt 與面板，預設直接執行、只在聊天回覆、不寫入工作表、不儲存。
 - 針對 Streamlit 熱重載保留舊模組快取的狀況，`main.py` 已改成重新載入 `ui.quick_actions`，避免開發中看到匯入錯誤頁。
+- 已新增並執行 Windows EXE 發佈流程，輸出為內含 Python runtime 的 onedir + zip 發佈包。
 - 新增可重跑的 Web UI smoke 流程與固定測試活頁簿 fixture。
 - 測試中發現並修復多個「UI 顯示成功但 Excel 實際沒有變」的問題。
 - 最後語法檢查通過：`agent.py`、`config.py`、`main.py`、`ui/sidebar.py`、`ui/tool_display.py`、`ui/quick_actions.py`、`excel/data.py`、`excel/format.py`、`excel/_undo.py`、`excel_tools.py`、`tools/definition.py`、`tools/executor.py`、`backup.py`、`tools_web_ui_smoke.py`、`scripts/build_web_ui_smoke_fixture.py`、`tests/test_beautify_range_contract.py`、`tests/test_web_ui_regression_repairs.py`、`tests/test_web_ui_smoke_assets.py`、`tests/test_tool_display.py`、`tests/test_quick_actions.py`。
@@ -43,6 +45,8 @@ UI 版本：v4.8.0
 | 一般使用者看不懂 `query_range` / `write_range` 等內部工具名 | 新增 `ui/tool_display.py`，狀態列、側邊欄、確認訊息與模型回覆會轉成白話操作名稱；技術細節仍可展開查看 |
 | 一般使用者不知道要怎麼下 prompt | 新增 `ui/quick_actions.py` 與 5 個固定快捷任務按鈕；按鈕只送白話 prompt，仍走原本 chat/tool/safety 流程 |
 | 快捷任務只有固定 prompt，使用者不能控制細節 | 快捷任務改為先開設定面板，確認後再送出白話任務；prompt 仍由既有 chat/tool/safety 流程執行 |
+| 產生資料摘要快捷任務會先進入任務規劃，且預設寫入/儲存 | prompt 改成直接執行；摘要面板新增「把摘要寫入 Report 工作表」與「寫入後儲存檔案」，預設皆不啟用 |
+| 同事沒有 Python 環境 | 新增 `packaging/streamlit_launcher.py`、`scripts/build_windows_exe.ps1`、`EXE_DISTRIBUTION.md`，用 PyInstaller 產生內嵌 Python 的 Windows 發佈包；本輪已產出 `dist\Excel-AI-Assistant-windows.zip` |
 
 ## 覆蓋結果
 
@@ -109,6 +113,7 @@ UI 版本：v4.8.0
 - 快捷任務 smoke case 固定覆蓋「美化目前表格」與「產生資料摘要」。
 - 快捷任務表單選項固定覆蓋美化主題、摘要深度、分組欄位、加總欄位、圖表類型與圖表放置位置。
 - `build_quick_action_prompt` 會把表單選項合併成白話任務，並要求完成後輸出可讀摘要。
+- `build_quick_action_prompt` 會要求快捷任務直接執行，不只產生計劃；資料摘要預設不寫入工作表且不儲存。
 - in-app browser 實測「查詢加總資料」快捷任務會先顯示分組欄位、加總欄位、總計與任務預覽；取消後面板會關閉。
 
 ## 本輪新增自動化檔案

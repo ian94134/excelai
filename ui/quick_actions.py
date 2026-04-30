@@ -12,6 +12,12 @@ class QuickAction:
     prompt: str
 
 
+DIRECT_EXECUTION_NOTE = (
+    "請直接執行，不要只產生計畫，也不要要求我再次確認；"
+    "如果會刪除資料、覆蓋大量內容或執行高風險操作，才需要先停下來確認。"
+)
+
+
 QUICK_ACTIONS: tuple[QuickAction, ...] = (
     QuickAction(
         key="beautify_report",
@@ -67,6 +73,8 @@ DEFAULT_QUICK_ACTION_OPTIONS: dict[str, dict[str, Any]] = {
     "summarize_data": {
         "depth": "標準",
         "include_recommendations": True,
+        "write_to_report": False,
+        "save_after": False,
     },
     "sum_by_group": {
         "group_by": "自動判斷",
@@ -104,6 +112,7 @@ def build_quick_action_prompt(action_key: str, options: Mapping[str, Any] | None
         freeze = "請凍結表頭，方便往下瀏覽" if opts.get("freeze_header") else "不要凍結表頭"
         save = "完成後請儲存檔案" if opts.get("save_after") else "完成後先不要自動儲存，讓我確認結果"
         return (
+            f"{DIRECT_EXECUTION_NOTE}"
             f"幫我把目前工作簿中的主要資料表整理成可以給主管看的報表格式。"
             f"視覺主題用{opts.get('theme', '藍色')}，{freeze}，{save}。"
             "完成後請用白話摘要列出處理範圍、做了哪些整理、以及是否需要我再確認下一步。"
@@ -111,9 +120,17 @@ def build_quick_action_prompt(action_key: str, options: Mapping[str, Any] | None
 
     if action_key == "summarize_data":
         recommendation = "並補充你建議我下一步可以檢查什麼" if opts.get("include_recommendations") else "不需要額外建議"
+        if opts.get("write_to_report"):
+            writeback = "請同時把摘要寫入 Report 工作表的空白區。"
+            save = "完成後請儲存檔案。" if opts.get("save_after") else "完成後先不要自動儲存，讓我確認結果。"
+        else:
+            writeback = "只要在聊天中回覆摘要，不要寫入任何工作表。"
+            save = "不要儲存檔案。"
         return (
+            f"{DIRECT_EXECUTION_NOTE}"
             f"幫我針對目前工作簿中的主要資料表產生{opts.get('depth', '標準')}資料摘要，"
             f"包含資料範圍、欄位、筆數、數值欄合計與平均，{recommendation}。"
+            f"{writeback}{save}"
             "完成後請用白話整理成容易給主管看的重點。"
         )
 
@@ -124,6 +141,7 @@ def build_quick_action_prompt(action_key: str, options: Mapping[str, Any] | None
         value_text = "請自動判斷最適合加總的數值欄位" if value_col == "自動判斷" else f"優先加總「{value_col}」"
         total_text = "請顯示總計" if opts.get("include_total") else "可以不用顯示總計"
         return (
+            f"{DIRECT_EXECUTION_NOTE}"
             f"幫我找出目前資料中各類別或地區的總金額。{group_text}，{value_text}，{total_text}，"
             "並指出最高的一組。完成後請用表格或條列摘要說明結果。"
         )
@@ -133,13 +151,14 @@ def build_quick_action_prompt(action_key: str, options: Mapping[str, Any] | None
         chart_text = "請自動判斷最適合的圖表類型" if chart_type == "自動判斷" else f"請建立{chart_type}"
         title_text = "請加上清楚標題" if opts.get("include_title") else "不需要額外標題"
         return (
+            f"{DIRECT_EXECUTION_NOTE}"
             f"幫我用目前資料建立一張適合報告使用的圖表。{chart_text}，"
             f"放在{opts.get('placement', '資料右側空白區')}，{title_text}。"
             "完成後請用白話說明圖表位置、使用的資料與主要觀察。"
         )
 
     if action_key == "undo_last":
-        return "請復原上一步操作。完成後請用白話說明復原了什麼、目前資料是否已回到前一個狀態。"
+        return f"{DIRECT_EXECUTION_NOTE}請復原上一步操作。完成後請用白話說明復原了什麼、目前資料是否已回到前一個狀態。"
 
     get_quick_action(action_key)
     raise KeyError(f"Unknown quick action: {action_key}")

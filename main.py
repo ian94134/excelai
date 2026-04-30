@@ -484,6 +484,11 @@ def _render_quick_action_panel(action_key: str) -> None:
             depth_choices = choices["depth"]
             options["depth"] = st.radio("摘要深度", depth_choices, index=_choice_index(depth_choices, "標準"), horizontal=True)
             options["include_recommendations"] = st.checkbox("包含下一步建議", value=True)
+            options["write_to_report"] = st.checkbox("把摘要寫入 Report 工作表", value=False)
+            if options["write_to_report"]:
+                options["save_after"] = st.checkbox("寫入後儲存檔案", value=False)
+            else:
+                options["save_after"] = False
 
         elif action.key == "sum_by_group":
             group_choices = choices["group_by"]

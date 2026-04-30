@@ -33,7 +33,9 @@
             "plain-language Web UI smoke case set",
             "user-facing tool labels in Web UI",
             "quick action buttons for common user tasks",
-            "configurable quick action confirmation forms"
+            "configurable quick action confirmation forms",
+            "quick action summary defaults avoid writeback and save",
+            "windows exe packaging workflow for colleagues without Python"
     ]
   },
   "regression_tests": {
@@ -67,6 +69,8 @@
             "quick action smoke case set covers beautify and summary prompts",
             "quick action forms expose user-facing choices for themes, summary depth, grouping, totals, chart type, and placement",
             "configured quick action prompts merge user options without exposing internal tool names",
+            "configured quick action prompts request direct execution instead of plan-only responses",
+            "summary quick action defaults to chat-only output unless Report writeback is explicitly selected",
             "in-app browser clicked the quick action query button, verified the configuration form, and closed it with cancel"
     ]
   },
@@ -238,6 +242,24 @@
     "save_workbook": "COM verified web_ui_v47_second.xlsx Saved=True and file mtime updated.",
     "undo_last": "COM verified Target!Z1 restored from UNDO_MARK to blank.",
     "quick_action_ui": "In-app browser clicked 查詢加總資料, opened the configuration form with grouping, value column, total toggle, and task preview, then verified cancel closes the form."
+  },
+  "windows_exe_packaging": {
+    "launcher": "packaging/streamlit_launcher.py",
+    "build_script": "scripts/build_windows_exe.ps1",
+    "output_folder": "dist/Excel AI Assistant",
+    "output_zip": "dist/Excel-AI-Assistant-windows.zip",
+    "status": "PASS",
+    "folder_file_count": 5964,
+    "folder_bytes": 304006232,
+    "zip_bytes": 127600551,
+    "verification": [
+      "PyInstaller build completed",
+      "zip archive created with tar.exe fallback after Compress-Archive lock errors",
+      "zip listing succeeded",
+      "archive contains Excel AI Assistant.exe, README_FOR_COLLEAGUES.txt, and _internal/main.py",
+      "dist folder does not include .env or test workbooks"
+    ],
+    "note": "Deliver the whole zip or whole dist/Excel AI Assistant folder. Do not send only the exe."
   },
   "artifacts": {
     "report": "WEB_UI_TOOL_TEST_REPORT.md",
