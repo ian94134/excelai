@@ -213,7 +213,9 @@ python -B tools_web_ui_smoke.py --case-set plain --workbook web_ui_plain_smoke_w
 python -B tools_web_ui_smoke.py --case-set quick --workbook web_ui_quick_smoke_work.xlsx --url http://localhost:8501/
 ```
 
-`tools_web_ui_smoke.py` 需要 Playwright 才能自動操作瀏覽器；一般 `pytest` 不依賴 Playwright，只驗證 fixture、工具名 smoke case、白話 smoke case、快捷任務 prompt 與 UI 友善顯示規格。
+快捷任務在 Web UI 會先展開設定面板，再由使用者按「執行」送出白話任務。可調整項目包含美化主題、摘要深度、分組欄位、加總欄位、圖表類型與放置位置。
+
+`tools_web_ui_smoke.py` 需要 Playwright 才能自動操作瀏覽器；一般 `pytest` 不依賴 Playwright，只驗證 fixture、工具名 smoke case、白話 smoke case、快捷任務 prompt/表單選項與 UI 友善顯示規格。
 
 ## 常見問題
 

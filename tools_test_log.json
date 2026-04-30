@@ -32,7 +32,8 @@
             "successful-tool fallback completion message",
             "plain-language Web UI smoke case set",
             "user-facing tool labels in Web UI",
-            "quick action buttons for common user tasks"
+            "quick action buttons for common user tasks",
+            "configurable quick action confirmation forms"
     ]
   },
   "regression_tests": {
@@ -44,7 +45,7 @@
       "tests/test_quick_actions.py"
     ],
     "command": "python -B -m pytest tests\\test_quick_actions.py tests\\test_tool_display.py tests\\test_web_ui_smoke_assets.py tests\\test_beautify_range_contract.py tests\\test_web_ui_regression_repairs.py -q",
-        "pass": 22,
+        "pass": 26,
     "fail": 0,
     "coverage": [
       "format_range natural-language argument repair",
@@ -64,7 +65,9 @@
             "tool names are converted to user-facing labels in chat/sidebar/status text",
             "quick action buttons queue plain-language prompts through the existing chat flow",
             "quick action smoke case set covers beautify and summary prompts",
-            "in-app browser clicked the quick action query button and received grouped totals"
+            "quick action forms expose user-facing choices for themes, summary depth, grouping, totals, chart type, and placement",
+            "configured quick action prompts merge user options without exposing internal tool names",
+            "in-app browser clicked the quick action query button, verified the configuration form, and closed it with cancel"
     ]
   },
   "web_ui_smoke_automation": {
@@ -234,7 +237,7 @@
     "copy_range_between_workbooks": "COM verified web_ui_v47_second.xlsx!Target!D1:F3 contains copied SalesData A1:C3.",
     "save_workbook": "COM verified web_ui_v47_second.xlsx Saved=True and file mtime updated.",
     "undo_last": "COM verified Target!Z1 restored from UNDO_MARK to blank.",
-    "quick_action_ui": "In-app browser clicked 查詢加總資料, auto-submitted the plain prompt, and received grouped totals with North=500.0 and grand total=880.0."
+    "quick_action_ui": "In-app browser clicked 查詢加總資料, opened the configuration form with grouping, value column, total toggle, and task preview, then verified cancel closes the form."
   },
   "artifacts": {
     "report": "WEB_UI_TOOL_TEST_REPORT.md",

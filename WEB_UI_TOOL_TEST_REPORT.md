@@ -11,12 +11,14 @@ UI 版本：v4.8.0
 - 既有 71 個工具主流程已全部跑完。
 - 新增 `beautify_range` 一鍵表格美化工具，目前工具總數為 72。
 - 最終結果：72 PASS / 0 FAIL（既有 71 工具 + 新增 `beautify_range`）。
-- 針對本輪修復與新增工具的 `pytest` 回歸測試：22 PASS / 0 FAIL。
+- 針對本輪修復與新增工具的 `pytest` 回歸測試：26 PASS / 0 FAIL。
 - 重新用 Web UI 模擬使用者做短煙霧測試：`fill_series`、`query_range`、`beautify_range`、`write_range` + `undo_last` 全部 PASS。
 - 追加完全白話輸入測試已自動化為 `tools_web_ui_smoke.py --case-set plain`：美化報表、查 North 總金額、寫入 `Report!AA1`。
 - Web UI 已將一般使用者可見的工具名稱改為白話操作名稱；原始工具名保留在「技術細節」展開區。
 - 新增 5 個常用任務快捷按鈕：美化目前表格、產生資料摘要、查詢加總資料、建立報告圖表、復原上一步。
-- in-app browser 實測已點擊「查詢加總資料」快捷任務，成功用白話 prompt 產生分組加總結果。
+- 快捷任務已升級為執行前設定面板，可選主題、摘要深度、分組欄位、加總欄位、圖表類型與放置位置。
+- in-app browser 實測已點擊「查詢加總資料」快捷任務，會先顯示設定面板，取消後可正常關閉。
+- 針對 Streamlit 熱重載保留舊模組快取的狀況，`main.py` 已改成重新載入 `ui.quick_actions`，避免開發中看到匯入錯誤頁。
 - 新增可重跑的 Web UI smoke 流程與固定測試活頁簿 fixture。
 - 測試中發現並修復多個「UI 顯示成功但 Excel 實際沒有變」的問題。
 - 最後語法檢查通過：`agent.py`、`config.py`、`main.py`、`ui/sidebar.py`、`ui/tool_display.py`、`ui/quick_actions.py`、`excel/data.py`、`excel/format.py`、`excel/_undo.py`、`excel_tools.py`、`tools/definition.py`、`tools/executor.py`、`backup.py`、`tools_web_ui_smoke.py`、`scripts/build_web_ui_smoke_fixture.py`、`tests/test_beautify_range_contract.py`、`tests/test_web_ui_regression_repairs.py`、`tests/test_web_ui_smoke_assets.py`、`tests/test_tool_display.py`、`tests/test_quick_actions.py`。
@@ -40,6 +42,7 @@ UI 版本：v4.8.0
 | 工具已成功執行但模型最後沒有輸出文字時，Web UI 可能停在思考狀態 | `agent.py` 會用已成功的工具結果產生簡短完成訊息 |
 | 一般使用者看不懂 `query_range` / `write_range` 等內部工具名 | 新增 `ui/tool_display.py`，狀態列、側邊欄、確認訊息與模型回覆會轉成白話操作名稱；技術細節仍可展開查看 |
 | 一般使用者不知道要怎麼下 prompt | 新增 `ui/quick_actions.py` 與 5 個固定快捷任務按鈕；按鈕只送白話 prompt，仍走原本 chat/tool/safety 流程 |
+| 快捷任務只有固定 prompt，使用者不能控制細節 | 快捷任務改為先開設定面板，確認後再送出白話任務；prompt 仍由既有 chat/tool/safety 流程執行 |
 
 ## 覆蓋結果
 
@@ -83,7 +86,7 @@ UI 版本：v4.8.0
 新增 UI 工具名友善顯示測試：`tests/test_tool_display.py`  
 新增常用任務快捷按鈕測試：`tests/test_quick_actions.py`
 指令：`python -B -m pytest tests\test_quick_actions.py tests\test_tool_display.py tests\test_web_ui_smoke_assets.py tests\test_beautify_range_contract.py tests\test_web_ui_regression_repairs.py -q`
-結果：22 PASS / 0 FAIL
+結果：26 PASS / 0 FAIL
 
 覆蓋範圍：
 
@@ -104,7 +107,9 @@ UI 版本：v4.8.0
 - `sanitize_assistant_text` 會把模型輸出的工具 checklist 轉成白話操作名稱。
 - 快捷任務按鈕固定為「美化目前表格、產生資料摘要、查詢加總資料、建立報告圖表、復原上一步」，且 prompt 不含工具名。
 - 快捷任務 smoke case 固定覆蓋「美化目前表格」與「產生資料摘要」。
-- in-app browser 實測「查詢加總資料」快捷任務會自動送出白話 prompt，最後回覆 North 最高 `500.0`、總計 `880.0`。
+- 快捷任務表單選項固定覆蓋美化主題、摘要深度、分組欄位、加總欄位、圖表類型與圖表放置位置。
+- `build_quick_action_prompt` 會把表單選項合併成白話任務，並要求完成後輸出可讀摘要。
+- in-app browser 實測「查詢加總資料」快捷任務會先顯示分組欄位、加總欄位、總計與任務預覽；取消後面板會關閉。
 
 ## 本輪新增自動化檔案
 
@@ -155,7 +160,7 @@ UI 顯示驗證活頁簿：`web_ui_plain_smoke_ui.xlsx`
 
 | 使用者操作 | UI 結果 | 驗證重點 |
 | --- | --- | --- |
-| 點擊「查詢加總資料」快捷按鈕 | 系統自動送出「幫我找出目前資料中各類別或地區的總金額，並指出最高的一組。」 | 回覆依地區與類別分組加總，North 為最高地區 `500.0`，總計 `880.0`；使用者不需要知道工具名 |
+| 點擊「查詢加總資料」快捷按鈕 | 系統展開設定面板，顯示分組欄位、加總欄位、總計選項與任務預覽 | 使用者不需要知道工具名；按「取消」後面板可正常關閉 |
 
 ## 注意
 

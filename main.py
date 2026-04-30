@@ -3,6 +3,7 @@ Excel AI 助手 v4.4.0
 執行方式：streamlit run main.py
 """
 
+import importlib
 import json
 import time
 import streamlit as st
@@ -21,7 +22,16 @@ from agent import (
 )
 from utils import col_letter as _col_letter
 from ui.tool_display import friendly_tool_label, friendly_tool_status, sanitize_assistant_text
-from ui.quick_actions import QUICK_ACTIONS, queue_quick_action
+from ui import quick_actions as _quick_actions
+
+_quick_actions = importlib.reload(_quick_actions)
+QUICK_ACTIONS = _quick_actions.QUICK_ACTIONS
+QUICK_ACTION_FORM_CHOICES = _quick_actions.QUICK_ACTION_FORM_CHOICES
+build_quick_action_prompt = _quick_actions.build_quick_action_prompt
+clear_quick_action_form = _quick_actions.clear_quick_action_form
+get_quick_action = _quick_actions.get_quick_action
+open_quick_action_form = _quick_actions.open_quick_action_form
+queue_quick_action = _quick_actions.queue_quick_action
 
 VERSION = "v4.8.0"
 
@@ -444,6 +454,73 @@ def _render_diff(tool_name: str, entry) -> None:
                 st.caption("無格式備份資料")
 
 
+def _choice_index(choices, value) -> int:
+    try:
+        return list(choices).index(value)
+    except ValueError:
+        return 0
+
+
+def _render_quick_action_panel(action_key: str) -> None:
+    try:
+        action = get_quick_action(action_key)
+    except KeyError:
+        clear_quick_action_form(st.session_state)
+        return
+
+    choices = QUICK_ACTION_FORM_CHOICES.get(action.key, {})
+    options = {}
+
+    with st.form(f"quick_action_form_{action.key}"):
+        st.markdown(f"**{action.label}**")
+
+        if action.key == "beautify_report":
+            theme_choices = choices["theme"]
+            options["theme"] = st.selectbox("主題", theme_choices, index=_choice_index(theme_choices, "藍色"))
+            options["freeze_header"] = st.checkbox("凍結表頭", value=True)
+            options["save_after"] = st.checkbox("完成後儲存", value=False)
+
+        elif action.key == "summarize_data":
+            depth_choices = choices["depth"]
+            options["depth"] = st.radio("摘要深度", depth_choices, index=_choice_index(depth_choices, "標準"), horizontal=True)
+            options["include_recommendations"] = st.checkbox("包含下一步建議", value=True)
+
+        elif action.key == "sum_by_group":
+            group_choices = choices["group_by"]
+            value_choices = choices["value_col"]
+            options["group_by"] = st.selectbox("分組欄位", group_choices, index=0)
+            options["value_col"] = st.selectbox("加總欄位", value_choices, index=0)
+            options["include_total"] = st.checkbox("顯示總計", value=True)
+
+        elif action.key == "create_report_chart":
+            chart_choices = choices["chart_type"]
+            placement_choices = choices["placement"]
+            options["chart_type"] = st.selectbox("圖表類型", chart_choices, index=0)
+            options["placement"] = st.selectbox("放置位置", placement_choices, index=0)
+            options["include_title"] = st.checkbox("加上清楚標題", value=True)
+
+        elif action.key == "undo_last":
+            st.warning("按下執行會復原上一個可復原操作。")
+
+        preview_prompt = build_quick_action_prompt(action.key, options)
+        st.text_area("將送出的任務", value=preview_prompt, height=110, disabled=True)
+        st.caption("確認後會以白話任務送出，並沿用原本安全、備份與復原流程。")
+
+        run_col, cancel_col = st.columns(2)
+        with run_col:
+            submitted = st.form_submit_button("執行", type="primary", use_container_width=True)
+        with cancel_col:
+            cancelled = st.form_submit_button("取消", use_container_width=True)
+
+    if submitted:
+        queue_quick_action(st.session_state, action.key, options)
+        clear_quick_action_form(st.session_state)
+        st.rerun()
+    if cancelled:
+        clear_quick_action_form(st.session_state)
+        st.rerun()
+
+
 # 每次 Streamlit rerun 都會重入此檔，session_state 首次才 log 啟動
 if "_session_logged" not in st.session_state:
     _log.info("session_started", extra={"version": VERSION})
@@ -556,8 +633,11 @@ if queued_prompt is None:
     for quick_col, action in zip(quick_cols, QUICK_ACTIONS):
         with quick_col:
             if st.button(action.label, key=f"quick_action_{action.key}", use_container_width=True):
-                queue_quick_action(st.session_state, action.key)
+                open_quick_action_form(st.session_state, action.key)
                 st.rerun()
+    quick_action_key = st.session_state.get("_quick_action_form")
+    if quick_action_key:
+        _render_quick_action_panel(quick_action_key)
 
 prompt = queued_prompt or st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定外框線 / 建立下拉選單")
 
