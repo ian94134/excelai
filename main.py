@@ -20,8 +20,9 @@ from agent import (
     EVT_DANGEROUS, EVT_REPEAT_HALT, EVT_ERROR, EVT_CLARIFY,
 )
 from utils import col_letter as _col_letter
+from ui.tool_display import friendly_tool_label, friendly_tool_status, sanitize_assistant_text
 
-VERSION = "v4.7.0"
+VERSION = "v4.8.0"
 
 _log = get_logger("main")
 
@@ -275,6 +276,30 @@ def _render_tool_result(tool_name: str, result_json: str) -> None:
             st.warning(payload.get("message", ""))
         return
 
+    if tool_name == "beautify_range" and isinstance(payload, dict) and payload.get("status") == "ok":
+        st.caption(
+            f"已美化 `{payload.get('sheet', '')}!{payload.get('range', '')}`，"
+            f"主題：`{payload.get('theme', 'blue')}`。"
+        )
+        return
+
+    if tool_name == "write_range" and isinstance(payload, dict) and payload.get("status") == "ok":
+        target = payload.get("range") or payload.get("range_addr") or ""
+        st.caption(f"已寫入 `{target}`。")
+        return
+
+    if tool_name == "query_range" and isinstance(payload, dict):
+        count = payload.get("filtered_count") or payload.get("count")
+        aggregation = payload.get("aggregation_result") or payload.get("aggregation")
+        parts = []
+        if count is not None:
+            parts.append(f"符合條件：`{count}` 筆")
+        if aggregation is not None:
+            parts.append(f"彙總結果：`{aggregation}`")
+        if parts:
+            st.caption("　".join(parts))
+            return
+
     # ── 其他工具：檢查是否有 error，否則精簡 ok 狀態 ─────────────────────────
     if isinstance(payload, dict):
         if "error" in payload:
@@ -282,7 +307,11 @@ def _render_tool_result(tool_name: str, result_json: str) -> None:
             return
         if payload.get("status") == "ok":
             # 只保留非 status 欄位做簡短顯示
-            extra = {k: v for k, v in payload.items() if k != "status" and v is not None}
+            extra = {
+                k: v
+                for k, v in payload.items()
+                if k not in ("status", "tool") and v is not None
+            }
             if extra:
                 st.caption("　".join(f"`{k}` = `{v}`" for k, v in extra.items()))
             else:
@@ -446,13 +475,15 @@ for m in session.get_messages():
 if "_pending_confirm" in st.session_state:
     pending = st.session_state["_pending_confirm"]
     tc = pending["tool_call"]
+    pending_label = friendly_tool_label(tc["name"])
 
-    st.warning(f"⚠️ **危險操作確認**\n\nAI 想要執行：`{tc['name']}`")
+    st.warning(f"⚠️ **危險操作確認**\n\nAI 想要執行：**{pending_label}**")
 
     # 依工具類型顯示「即將受影響的資料」預覽
     _preview_dangerous_op(tc["name"], tc["arguments"])
 
-    with st.expander("📋 完整參數", expanded=False):
+    with st.expander("📋 技術細節", expanded=False):
+        st.caption(f"工具：`{tc['name']}`")
         st.code(json.dumps(tc["arguments"], ensure_ascii=False, indent=2), language="json")
 
     col1, col2 = st.columns(2)
@@ -465,6 +496,17 @@ if "_pending_confirm" in st.session_state:
                 "role": "tool", "tool_call_id": tc["id"],
                 "name": tc["name"], "content": result,
             })
+            try:
+                payload = json.loads(result)
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict) and (
+                payload.get("status") == "error" or "error" in payload
+            ):
+                summary = f"❌ 已確認但「{pending_label}」執行失敗：{payload.get('message') or payload.get('error') or result}"
+            else:
+                summary = f"✅ 已確認並執行「{pending_label}」。"
+            session.append_message({"role": "assistant", "content": summary})
             st.session_state.pop("_pending_confirm")
             st.rerun()
     with col2:
@@ -474,6 +516,7 @@ if "_pending_confirm" in st.session_state:
                 "name": tc["name"],
                 "content": json.dumps({"error": "使用者取消執行"}, ensure_ascii=False),
             })
+            session.append_message({"role": "assistant", "content": f"已取消「{pending_label}」。"})
             st.session_state.pop("_pending_confirm")
             st.rerun()
     st.stop()
@@ -491,12 +534,12 @@ if "_pending_plan" in st.session_state:
     col_go, col_cancel = st.columns(2)
     with col_go:
         if st.button("▶ 開始執行", use_container_width=True, type="primary"):
-            # 注入執行指令，讓 AI 從計劃繼續執行
+            # 注入執行指令，讓下一輪進入與 chat_input 相同的執行流程
             exec_prompt = (
                 "好的，計劃確認。請現在依照上面的步驟逐一執行，"
                 "每一步完成後告知結果，遇到問題立即停下來說明。"
             )
-            session.append_message({"role": "user", "content": exec_prompt})
+            st.session_state["_queued_prompt"] = exec_prompt
             st.session_state.pop("_pending_plan")
             st.rerun()
     with col_cancel:
@@ -505,7 +548,10 @@ if "_pending_plan" in st.session_state:
             st.rerun()
     st.stop()
 
-if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定外框線 / 建立下拉選單"):
+queued_prompt = st.session_state.pop("_queued_prompt", None)
+prompt = queued_prompt or st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定外框線 / 建立下拉選單")
+
+if prompt:
     _log.info("user_prompt", extra={
         "prompt_preview": redact_prompt(prompt),
         "prompt_len": len(prompt),
@@ -589,13 +635,13 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                 placeholder.warning(f"🔄 Qwen 連線失敗，第 {attempt}/3 次重試中…")
 
             elif kind == EVT_DONE:
-                final = str(data) if data else "完成 ✓"
+                final = sanitize_assistant_text(str(data)) if data else "完成 ✓"
                 placeholder.markdown(final)
                 session.append_message({"role": "assistant", "content": final})
 
             elif kind == EVT_PLAN_READY:
                 # 規劃模式：顯示計劃，等待使用者確認後執行
-                final = str(data) if data else ""
+                final = sanitize_assistant_text(str(data)) if data else ""
                 placeholder.markdown(final)
                 session.append_message({"role": "assistant", "content": final})
                 st.session_state["_pending_plan"] = {"plan": final}
@@ -612,19 +658,26 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
             elif kind == EVT_TOOL_DONE:
                 tex = data   # agent.ToolExecution
                 tc  = tex.tc
+                tool_label = friendly_tool_label(tc.name)
+                status_label = friendly_tool_status(tc.name, has_error=tex.has_error)
 
                 # 可收折的 status 元件顯示工具執行結果
                 with tool_output_area:
-                    with st.status(f"🔧 `{tc.name}`", expanded=False) as status:
-                        st.code(
-                            json.dumps(tc.arguments, ensure_ascii=False, indent=2),
-                            language="json",
-                        )
+                    with st.status(f"🔧 {tool_label}", expanded=False) as status:
+                        with st.expander("技術細節", expanded=False):
+                            st.caption(f"工具：`{tc.name}`")
+                            st.caption("參數")
+                            st.code(
+                                json.dumps(tc.arguments, ensure_ascii=False, indent=2),
+                                language="json",
+                            )
+                            st.caption("結果")
+                            st.code(tex.result_json, language="json")
                         _render_tool_result(tc.name, tex.result_json)
                         if tex.backup_entry is not None:
                             _render_diff(tc.name, tex.backup_entry)
                         status.update(
-                            label=f"{'❌' if tex.has_error else '✅'} `{tc.name}`",
+                            label=f"{'❌' if tex.has_error else '✅'} {status_label}",
                             state="complete",
                             expanded=False,
                         )
@@ -640,7 +693,11 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                 # 唯讀工具另外記錄到 _read_op_log
                 if tc.name in _READ_ONLY_TOOLS:
                     log = st.session_state.setdefault("_read_op_log", [])
-                    log.append({"time": time.strftime("%H:%M:%S"), "tool": tc.name})
+                    log.append({
+                        "time": time.strftime("%H:%M:%S"),
+                        "tool": tc.name,
+                        "label": friendly_tool_label(tc.name),
+                    })
                     if len(log) > 50:
                         st.session_state["_read_op_log"] = log[-50:]
 
@@ -657,13 +714,13 @@ if prompt := st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定�
                 st.rerun()
 
             elif kind == EVT_REPEAT_HALT:
-                msg = str(data)
+                msg = sanitize_assistant_text(str(data))
                 placeholder.warning(msg)
                 session.append_message({"role": "assistant", "content": msg})
 
             elif kind == EVT_CLARIFY:
                 # LLM is asking a clarification question — show it and wait for user reply
-                question = str(data) if data else ""
+                question = sanitize_assistant_text(str(data)) if data else ""
                 placeholder.markdown(question)
                 session.append_message({"role": "assistant", "content": question})
                 # 顯示提示標籤，讓使用者知道 AI 在等待補充說明

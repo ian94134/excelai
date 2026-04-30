@@ -56,6 +56,7 @@ TOOL_MAP = {
     "add_comment":            lambda a: et.add_comment(**a),
     "set_data_validation":    lambda a: et.set_data_validation(**a),
     # ── V4 美化工具群 ──────────────────────────────────────────────────────────
+    "beautify_range":         lambda a: et.beautify_range(**a),
     "apply_table_style":      lambda a: et.apply_table_style(**a),
     "format_chart":           lambda a: et.format_chart(**a),
     "create_combo_chart":     lambda a: et.create_combo_chart(**a),
@@ -166,14 +167,21 @@ def execute(tool_name: str, arguments: dict) -> str:
                 rng_addr = arguments.get("range_addr", "")
                 sheet = arguments.get("sheet")
                 if rng_addr:
-                    backup_entry.values_before = et.read_range(rng_addr, sheet)
+                    values_before = et.read_range(rng_addr, sheet)
+                    if values_before == []:
+                        excel = et._get_excel()
+                        ws = et._get_sheet(excel, sheet)
+                        rng = ws.Range(rng_addr)
+                        if rng.Cells.Count == 1:
+                            values_before = [[None]]
+                    backup_entry.values_before = values_before
             except Exception as ve:
                 _log.warning("backup_values_before_failed", extra={
                     "tool": tool_name, "args_hash": args_h,
                     "error_type": type(ve).__name__,
                 })
         # Phase 3 Category B：對格式修改工具預先讀取 formats_before
-        if backup_entry is not None and tool_name in ("format_range", "set_borders"):
+        if backup_entry is not None and tool_name in ("format_range", "set_borders", "beautify_range"):
             try:
                 rng_addr = arguments.get("range_addr", "")
                 sheet = arguments.get("sheet")

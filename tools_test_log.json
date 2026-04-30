@@ -1,0 +1,238 @@
+{
+  "version": "v4.8.0",
+  "date": "2026-04-30",
+  "mode": "Codex in-app browser + Streamlit Web UI + Qwen + Excel COM verification",
+  "test_url": "http://localhost:8501/",
+    "workbooks": [
+        "web_ui_v47_full.xlsx",
+        "web_ui_v47_second.xlsx",
+        "web_ui_smoke_work.xlsx",
+        "web_ui_natural_smoke_20260429_174527.xlsx",
+        "web_ui_plain_smoke_ui.xlsx"
+  ],
+  "summary": {
+    "total_tools": 72,
+    "pass": 72,
+    "fail": 0,
+    "fixed_during_run": [
+      "format_range argument repair",
+      "sort_range/filter_range header column repair",
+      "freeze_panes COM fallback",
+      "find_replace filtered-sheet behavior",
+      "set_data_validation formula1/options aliases",
+      "fill_series empty-start false success",
+      "fill_series natural phrase repair for '填 1 到 5'",
+      "advanced_filter sheet-qualified criteria range",
+            "page_setup missing argument repair",
+            "query_range natural-language filters and aggregation",
+            "undo_last blank-cell restore",
+            "beautify_range one-click report formatting",
+            "natural-language beautify avoids automatic apply_table_style",
+            "successful-tool fallback completion message",
+            "plain-language Web UI smoke case set",
+            "user-facing tool labels in Web UI"
+    ]
+  },
+  "regression_tests": {
+    "files": [
+      "tests/test_beautify_range_contract.py",
+      "tests/test_web_ui_regression_repairs.py",
+      "tests/test_web_ui_smoke_assets.py",
+      "tests/test_tool_display.py"
+    ],
+    "command": "python -B -m pytest tests\\test_tool_display.py tests\\test_web_ui_smoke_assets.py tests\\test_beautify_range_contract.py tests\\test_web_ui_regression_repairs.py -q",
+        "pass": 18,
+    "fail": 0,
+    "coverage": [
+      "format_range natural-language argument repair",
+      "sort_range/filter_range header column repair",
+      "set_data_validation aliases",
+      "fill_series 'fill 1 to 5' phrase repair",
+      "page_setup missing argument repair",
+            "query_range filter and aggregation repair",
+            "undo_last blank single-cell restore",
+            "beautify_range schema, executor dispatch, and backup tracking",
+            "apply_table_style schema is not the default path for ordinary beautify requests",
+            "header row detection prevents generated Column1-style header shifting",
+            "run_turn fallback completion after successful tool execution",
+            "web UI smoke fixture has 4 North rows and Amount sum 500",
+            "web UI smoke case order is fill_series -> query_range -> beautify_range -> write_range -> undo_last",
+            "plain-language smoke case set contains no tool-name prompts",
+            "tool names are converted to user-facing labels in chat/sidebar/status text"
+    ]
+  },
+  "web_ui_smoke_automation": {
+    "fixture_builder": "scripts/build_web_ui_smoke_fixture.py",
+    "fixture": "tests/fixtures/web_ui_smoke_base.xlsx",
+    "runner": "tools_web_ui_smoke.py",
+    "prepare_command": "python -B tools_web_ui_smoke.py --prepare-only",
+    "run_command": "python -B tools_web_ui_smoke.py --url http://localhost:8501/",
+    "plain_language_run_command": "python -B tools_web_ui_smoke.py --case-set plain --workbook web_ui_plain_smoke_work.xlsx --url http://localhost:8501/",
+    "prepare_status": "PASS",
+    "prepare_evidence": "Created/copied web_ui_smoke_work.xlsx, opened it in Excel, and passed Streamlit healthcheck.",
+    "browser_runner_status": "READY",
+    "browser_runner_note": "Python Playwright is not installed in this environment, so the runner was syntax-checked and the same cases, including beautify_range, were executed with Codex in-app browser."
+  },
+  "short_web_ui_smoke": {
+    "mode": "Codex in-app browser simulated user prompts + Excel COM verification",
+    "status": "PASS",
+    "workbook": "web_ui_smoke_work.xlsx",
+    "cases": [
+      {
+        "tool": "fill_series",
+        "prompt": "請直接呼叫 fill_series。從 Report!K1 開始往下填 1 到 5。",
+        "ui_result": "已在 Report 工作表的 K1:K5 範圍填入數列 1 到 5。",
+        "com_verification": "Report!K1:K5 = 1,2,3,4,5",
+        "status": "PASS"
+      },
+      {
+        "tool": "query_range",
+        "prompt": "請直接呼叫 query_range。sheet=SalesData，range_addr=A1:G10，query=Region=North 的所有列，並把 Amount 加總。",
+        "ui_result": "Returned 4 North rows and Amount sum 500.0.",
+        "com_verification": "Matches SalesData table contents.",
+        "status": "PASS"
+      },
+      {
+        "tool": "beautify_range",
+        "prompt": "請直接呼叫 beautify_range。sheet=SalesData，range_addr=A1:G10，theme=blue，has_header=true，freeze_header=false。",
+        "ui_result": "Web UI reported blue theme beautification was applied.",
+        "com_verification": "SalesData!A1 bold/fill, A3 stripe, A1 border, E2 #,##0 number format, and AutoFilterMode=True.",
+        "status": "PASS"
+      },
+      {
+        "tool": "write_range + undo_last",
+        "prompt": "請直接呼叫 write_range 工具。sheet=Report，range_addr=Z1，values=[[\"SMOKE_UNDO\"]]。 Then undo_last as a separate prompt.",
+        "ui_result": "undo_last reported the previous write_range was restored.",
+        "com_verification": "Report!Z1 changed from SMOKE_UNDO back to blank.",
+        "status": "PASS"
+      }
+    ],
+        "notes": [
+            "Python Playwright was not installed, so no Playwright dependency was added.",
+            "Browser smoke used the in-app browser against http://localhost:8501/."
+        ]
+    },
+    "plain_language_web_ui_smoke": {
+        "mode": "Codex in-app browser simulated user prompts without tool names + Excel COM verification",
+        "status": "PASS",
+        "workbook": "web_ui_natural_smoke_20260429_174527.xlsx",
+        "cases": [
+            {
+                "prompt": "幫我把 SalesData 這張表整理得漂亮一點，做成可以給主管看的樣子。",
+                "ui_result": "Beautified SalesData, colored the sheet tab, and saved the workbook without requiring a tool name.",
+                "com_verification": "SalesData used range stayed $A$1:$G$10, A1=Date, A2=2026-01-01, AutoFilter=True, Amount format=#,##0.",
+                "status": "PASS"
+            },
+            {
+                "prompt": "這張表裡 North 的總金額是多少？",
+                "ui_result": "Returned 4 North rows and Amount sum 500.0.",
+                "com_verification": "Matches SalesData table contents after beautify.",
+                "status": "PASS"
+            },
+            {
+                "prompt": "幫我在 Report 工作表的 AA1 寫上「白話輸入OK」。",
+                "ui_result": "Reported Report!AA1 was written.",
+                "com_verification": "Report!AA1=白話輸入OK.",
+                "status": "PASS"
+            }
+        ]
+    },
+    "tools_passed": [
+    "read_range",
+    "get_sheet_info",
+    "get_used_range",
+    "get_workbook_summary",
+    "list_workbooks",
+    "write_range",
+    "format_range",
+    "beautify_range",
+    "set_borders",
+    "clear_range",
+    "merge_cells",
+    "unmerge_cells",
+    "add_conditional_format",
+    "apply_table_style",
+    "set_tab_color",
+    "insert_row",
+    "delete_row",
+    "insert_column",
+    "delete_column",
+    "set_row_height",
+    "set_column_width",
+    "auto_fit",
+    "freeze_panes",
+    "group_rows",
+    "group_columns",
+    "add_sheet",
+    "rename_sheet",
+    "move_sheet",
+    "copy_sheet",
+    "delete_sheet",
+    "protect_sheet",
+    "unprotect_sheet",
+    "set_print_titles",
+    "add_header_footer",
+    "sort_range",
+    "filter_range",
+    "find_replace",
+    "trim_range",
+    "copy_range",
+    "add_comment",
+    "set_data_validation",
+    "name_range",
+    "transpose_range",
+    "fill_series",
+    "split_text_to_columns",
+    "add_subtotal",
+    "advanced_filter",
+    "summarize_range",
+    "find_duplicates",
+    "create_chart",
+    "format_chart",
+    "move_chart",
+    "create_combo_chart",
+    "delete_chart",
+    "add_sparklines",
+    "create_pivot_table",
+    "refresh_pivot_table",
+    "format_pivot_table",
+    "add_slicer",
+    "page_setup",
+    "add_image",
+    "record_macro",
+    "list_macros",
+    "run_macro",
+    "delete_macro",
+    "validate_formula",
+    "explain_formula",
+    "query_range",
+    "switch_workbook",
+    "copy_range_between_workbooks",
+    "save_workbook",
+    "undo_last"
+  ],
+  "evidence": {
+    "format_range": "COM verified Report!A1 bold, blue fill, white font, centered.",
+    "beautify_range": "COM verified SalesData!A1:G10 has bold/filled header, striped rows, thin borders, #,##0 Amount format, and AutoFilter.",
+    "freeze_panes": "COM verified ActiveWindow.FreezePanes=True and SplitRow=1.",
+    "find_replace": "COM verified Beta values changed to Beta-X.",
+    "set_data_validation": "COM verified ValidationData!B2 Validation.Type=3 and Formula1=A,B,C.",
+    "fill_series": "COM verified Report!K1:K5 = 1..5.",
+    "split_text_to_columns": "COM verified Report!M1:O3 split into a/b/c, d/e/f, g/h/i.",
+    "advanced_filter": "COM verified copied results contain only Region=North rows.",
+    "pivot": "COM verified PivotOut has one pivot table styled PivotStyleMedium9 and one slicer cache.",
+    "page_setup": "COM verified landscape, A1:O20 print area, one-page-wide scaling, horizontal centering.",
+    "query_range": "Web UI returned 4 North rows and Amount sum 500.0.",
+    "ui_tool_labels": "In-app browser label check showed friendly statuses such as 已讀取資料 and 已查詢資料, with no visible query_range/get_used_range checklist.",
+    "copy_range_between_workbooks": "COM verified web_ui_v47_second.xlsx!Target!D1:F3 contains copied SalesData A1:C3.",
+    "save_workbook": "COM verified web_ui_v47_second.xlsx Saved=True and file mtime updated.",
+    "undo_last": "COM verified Target!Z1 restored from UNDO_MARK to blank."
+  },
+  "artifacts": {
+    "report": "WEB_UI_TOOL_TEST_REPORT.md",
+    "temporary_files_left_in_place": [
+      "web_ui_v47_full_resaved.xlsx",
+      "tmp_openpyxl_dv_test.xlsx"
+    ]
+  }
+}

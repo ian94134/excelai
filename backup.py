@@ -99,6 +99,7 @@ BACKUP_NEEDED: dict[str, bool] = {
     # ── V4 新增工具 ────────────────────────────────────────────────────────────
     "trim_range":             True,
     # ── V4 美化工具群 ──────────────────────────────────────────────────────────
+    "beautify_range":         True,
     "apply_table_style":      True,
     "format_chart":           True,
     "create_combo_chart":     True,
@@ -269,6 +270,14 @@ def restore(entry: BackupEntry) -> dict:
     # ── Category B-values: restore cell data ──────────────────────────────
     if entry.values_before is not None:
         rng_addr = args.get("range_addr", "")
+        if rng_addr and entry.values_before == []:
+            try:
+                excel = et._get_excel()
+                ws = et._get_sheet(excel, sheet)
+                ws.Range(rng_addr).ClearContents()
+                return {"status": "ok", "undone": name, "method": "values_clear"}
+            except Exception as e:
+                return {"status": "error", "undone": name, "error": str(e)}
         if rng_addr and entry.values_before:
             try:
                 et.write_range(rng_addr, entry.values_before, sheet)

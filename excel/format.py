@@ -25,10 +25,53 @@ from exceptions import (
     SheetNotFoundError,
     InvalidToolArgumentsError,
 )
-from excel._base import _get_excel, _get_sheet, _hex_to_bgr, _ensure_positive_int, _ensure_positive_number, _com_tls
+from excel._base import (
+    _get_excel, _get_sheet, _hex_to_bgr, _ensure_positive_int,
+    _ensure_positive_number, _normalize_values, _com_tls,
+)
 
 _INTERIOR_NONE_IDX = -4142  # xlColorIndexNone
 _ALL_BORDER_IDX = sorted({idx for indexes in XL_BORDER_SIDES.values() for idx in indexes})
+_XL_CENTER_CONTINUOUS = 7
+_XL_VERTICAL_CENTER = -4108
+
+_BEAUTIFY_THEMES = {
+    "blue": {
+        "header_fill": "#4472C4",
+        "header_font": "#FFFFFF",
+        "stripe_fill": "#D9EAF7",
+        "border_color": "#B4C6E7",
+        "accent": "#1F4E79",
+    },
+    "green": {
+        "header_fill": "#70AD47",
+        "header_font": "#FFFFFF",
+        "stripe_fill": "#E2F0D9",
+        "border_color": "#A9D18E",
+        "accent": "#548235",
+    },
+    "gray": {
+        "header_fill": "#595959",
+        "header_font": "#FFFFFF",
+        "stripe_fill": "#F2F2F2",
+        "border_color": "#BFBFBF",
+        "accent": "#404040",
+    },
+    "orange": {
+        "header_fill": "#ED7D31",
+        "header_font": "#FFFFFF",
+        "stripe_fill": "#FCE4D6",
+        "border_color": "#F4B183",
+        "accent": "#C65911",
+    },
+    "purple": {
+        "header_fill": "#7030A0",
+        "header_font": "#FFFFFF",
+        "stripe_fill": "#EADCF8",
+        "border_color": "#C9B2E2",
+        "accent": "#5F249F",
+    },
+}
 
 
 def capture_widths_before(col_start: int, count: int = 1, sheet: str | None = None) -> dict:
@@ -80,6 +123,61 @@ def capture_formats_before(range_addr: str, sheet: str | None, args: dict) -> di
     cell_count = rng.Count
 
     tool_type = args.get("_tool_type", "format_range")
+
+    if tool_type == "beautify_range":
+        props = {
+            "bold", "italic", "color", "fill",
+            "font_size", "number_format", "horizontal_alignment",
+        }
+        if cell_count <= 200:
+            cells_data = []
+            for cell in rng:
+                info = {
+                    "address": cell.Address,
+                    "bold": cell.Font.Bold,
+                    "italic": cell.Font.Italic,
+                    "color": cell.Font.Color,
+                    "font_size": cell.Font.Size,
+                    "number_format": cell.NumberFormat,
+                    "horizontal_alignment": cell.HorizontalAlignment,
+                }
+                ci = cell.Interior.ColorIndex
+                info["fill"] = None if ci == _INTERIOR_NONE_IDX else cell.Interior.Color
+                borders_info = {}
+                for idx in _ALL_BORDER_IDX:
+                    try:
+                        b = cell.Borders(idx)
+                        borders_info[idx] = {
+                            "line_style": b.LineStyle,
+                            "color": b.Color,
+                        }
+                    except Exception:
+                        pass
+                info["borders"] = borders_info
+                cells_data.append(info)
+        else:
+            info = {
+                "address": rng.Address,
+                "_range_level": True,
+                "bold": rng.Font.Bold,
+                "italic": rng.Font.Italic,
+                "color": rng.Font.Color,
+                "font_size": rng.Font.Size,
+                "number_format": rng.NumberFormat,
+                "horizontal_alignment": rng.HorizontalAlignment,
+            }
+            ci = rng.Interior.ColorIndex
+            info["fill"] = None if ci == _INTERIOR_NONE_IDX else rng.Interior.Color
+            borders_info = {}
+            for idx in _ALL_BORDER_IDX:
+                try:
+                    b = rng.Borders(idx)
+                    borders_info[idx] = {"line_style": b.LineStyle, "color": b.Color}
+                except Exception:
+                    pass
+            info["borders"] = borders_info
+            cells_data = [info]
+        return {"type": "beautify_range", "range": range_addr, "cells": cells_data}
 
     if tool_type == "set_borders":
         # 讀取即將被覆蓋的邊框設定
@@ -171,7 +269,7 @@ def _restore_formats(formats_before: dict, sheet: str | None) -> None:
         addr = cell_info["address"]
         rng  = ws.Range(addr)
 
-        if fmt_type == "set_borders":
+        if fmt_type in ("set_borders", "beautify_range") and "borders" in cell_info:
             for idx, bdata in cell_info.get("borders", {}).items():
                 try:
                     b = rng.Borders(int(idx))
@@ -180,7 +278,11 @@ def _restore_formats(formats_before: dict, sheet: str | None) -> None:
                 except Exception:
                     pass
 
-        else:  # format_range
+        if fmt_type == "set_borders":
+            continue
+
+        # format_range / beautify_range
+        if fmt_type in ("format_range", "beautify_range"):
             if "bold" in cell_info and cell_info["bold"] is not None:
                 rng.Font.Bold = cell_info["bold"]
             if "italic" in cell_info and cell_info["italic"] is not None:
@@ -246,6 +348,161 @@ def format_range(
         rng.HorizontalAlignment = XL_ALIGN.get(horizontal_alignment, XL_ALIGN["center"])
 
     return {"status": "ok", "range": rng.Address}
+
+
+def _beautify_theme(theme: str) -> dict:
+    return _BEAUTIFY_THEMES.get((theme or "blue").lower(), _BEAUTIFY_THEMES["blue"])
+
+
+def _is_numeric_value(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _guess_column_number_format(header: str, values: list) -> str | None:
+    non_blank = [v for v in values if v not in (None, "")]
+    if not non_blank or not all(_is_numeric_value(v) for v in non_blank):
+        return None
+
+    header_text = (header or "").lower()
+    if any(token in header_text for token in ("%", "rate", "ratio", "percent", "比例", "比率", "率")):
+        return "0.0%"
+    if any(
+        token in header_text
+        for token in ("amount", "price", "sales", "revenue", "cost", "total", "金額", "收入", "成本", "總計", "合計")
+    ):
+        return "#,##0"
+    if any(float(v) % 1 for v in non_blank):
+        return "#,##0.00"
+    return "#,##0"
+
+
+def _looks_like_header_row(first_row: list, second_row: list | None = None) -> bool:
+    non_blank = [str(value).strip() for value in first_row if value not in (None, "")]
+    if not non_blank or len(non_blank) != len(set(non_blank)):
+        return False
+    if not all(isinstance(value, str) and str(value).strip() for value in first_row):
+        return False
+    if second_row and any(_is_numeric_value(value) for value in second_row):
+        return True
+    return len(non_blank) >= 2
+
+
+def beautify_range(
+    range_addr: str,
+    sheet: str | None = None,
+    theme: str = "blue",
+    has_header: bool = True,
+    banded_rows: bool = True,
+    auto_fit_columns: bool = True,
+    freeze_header: bool = False,
+    apply_filter: bool = True,
+    number_format: str | None = "auto",
+    font_name: str = "Calibri",
+) -> dict:
+    """
+    一鍵美化資料範圍：表頭、交錯列、框線、欄寬、數字格式、可選篩選與凍結。
+    不建立 ListObject，避免和既有表格重疊時失敗。
+    """
+    excel = _get_excel()
+    ws = _get_sheet(excel, sheet)
+    rng = ws.Range(range_addr)
+    rows = int(rng.Rows.Count)
+    cols = int(rng.Columns.Count)
+    if rows < 1 or cols < 1:
+        raise InvalidToolArgumentsError("beautify_range 的 range_addr 必須至少包含一個儲存格")
+
+    theme_key = (theme or "blue").lower()
+    palette = _beautify_theme(theme_key)
+    first_row = int(rng.Row)
+    first_col = int(rng.Column)
+    last_row = first_row + rows - 1
+    last_col = first_col + cols - 1
+
+    rng.Font.Name = font_name
+    rng.Font.Size = 11
+    rng.VerticalAlignment = _XL_VERTICAL_CENTER
+
+    border_color = _hex_to_bgr(palette["border_color"])
+    for idx in XL_BORDER_SIDES["all"]:
+        border = rng.Borders(idx)
+        border.LineStyle = XL_BORDER_STYLE["thin"]
+        border.Color = border_color
+
+    applied: list[str] = ["font", "borders"]
+
+    if has_header:
+        header_rng = ws.Range(ws.Cells(first_row, first_col), ws.Cells(first_row, last_col))
+        header_rng.Font.Bold = True
+        header_rng.Font.Color = _hex_to_bgr(palette["header_font"])
+        header_rng.Interior.Color = _hex_to_bgr(palette["header_fill"])
+        header_rng.HorizontalAlignment = XL_ALIGN["center"]
+        header_rng.VerticalAlignment = _XL_VERTICAL_CENTER
+        header_rng.RowHeight = max(float(header_rng.RowHeight), 22)
+        applied.append("header")
+
+    data_start_row = first_row + 1 if has_header and rows > 1 else first_row
+    if data_start_row <= last_row:
+        data_rng = ws.Range(ws.Cells(data_start_row, first_col), ws.Cells(last_row, last_col))
+        data_rng.Interior.ColorIndex = _INTERIOR_NONE_IDX
+        data_rng.HorizontalAlignment = XL_ALIGN["left"]
+        if banded_rows:
+            stripe_color = _hex_to_bgr(palette["stripe_fill"])
+            for row_idx in range(data_start_row, last_row + 1):
+                if (row_idx - data_start_row) % 2 == 1:
+                    ws.Range(ws.Cells(row_idx, first_col), ws.Cells(row_idx, last_col)).Interior.Color = stripe_color
+            applied.append("banded_rows")
+
+        if number_format and str(number_format).lower() not in ("none", "off", "false"):
+            if str(number_format).lower() == "auto":
+                header_values = _normalize_values(
+                    ws.Range(ws.Cells(first_row, first_col), ws.Cells(first_row, last_col)).Value
+                )[0]
+                formatted_cols = []
+                for offset in range(cols):
+                    col_idx = first_col + offset
+                    col_rng = ws.Range(ws.Cells(data_start_row, col_idx), ws.Cells(last_row, col_idx))
+                    values = [row[0] for row in _normalize_values(col_rng.Value)]
+                    fmt = _guess_column_number_format(str(header_values[offset] or ""), values)
+                    if fmt:
+                        col_rng.NumberFormat = fmt
+                        formatted_cols.append(_col_letter(col_idx))
+                if formatted_cols:
+                    applied.append(f"number_format:{','.join(formatted_cols)}")
+            else:
+                data_rng.NumberFormat = str(number_format)
+                applied.append("number_format")
+
+    if apply_filter and has_header:
+        try:
+            ws.Parent.Activate()
+            ws.Activate()
+            if not ws.AutoFilterMode:
+                rng.AutoFilter(Field=1)
+            applied.append("filter")
+        except Exception:
+            pass
+
+    if auto_fit_columns:
+        rng.Columns.AutoFit()
+        applied.append("auto_fit_columns")
+
+    if freeze_header and has_header:
+        try:
+            freeze_panes(row=first_row, col=0, sheet=ws.Name)
+            applied.append("freeze_header")
+        except Exception:
+            pass
+
+    return {
+        "status": "ok",
+        "tool": "beautify_range",
+        "sheet": ws.Name,
+        "range": rng.Address,
+        "theme": theme_key if theme_key in _BEAUTIFY_THEMES else "blue",
+        "rows": rows,
+        "columns": cols,
+        "applied": applied,
+    }
 
 
 # ── 列操作 ─────────────────────────────────────────────────────────────────────
@@ -337,15 +594,30 @@ def freeze_panes(
     """
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
+    ws.Parent.Activate()
     ws.Activate()
 
-    # 先解除現有凍結
-    excel.ActiveWindow.FreezePanes = False
+    win = excel.ActiveWindow
 
-    if row > 0 or col > 0:
-        # 選取凍結分割點右下角的儲存格
-        ws.Cells(row + 1, col + 1).Select()
-        excel.ActiveWindow.FreezePanes = True
+    try:
+        if win.FreezePanes:
+            win.FreezePanes = False
+        win.SplitRow = 0
+        win.SplitColumn = 0
+
+        if row > 0 or col > 0:
+            win.SplitRow = row
+            win.SplitColumn = col
+            win.FreezePanes = True
+    except Exception:
+        # Some Excel window states reject direct FreezePanes assignment even
+        # after activating the workbook.  The Excel 4 macro path mirrors the
+        # UI command and succeeds in those cases.
+        ws.Cells(max(row + 1, 1), max(col + 1, 1)).Select()
+        excel.ExecuteExcel4Macro("FREEZE.PANES(FALSE)")
+        if row > 0 or col > 0:
+            ws.Cells(row + 1, col + 1).Select()
+            excel.ExecuteExcel4Macro("FREEZE.PANES(TRUE)")
 
     return {"status": "ok", "frozen_rows": row, "frozen_cols": col}
 
@@ -525,6 +797,10 @@ def apply_table_style(
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
     rng = ws.Range(range_addr)
+    if not has_header and int(rng.Rows.Count) >= 2:
+        values = _normalize_values(rng.Value)
+        if values and _looks_like_header_row(values[0], values[1] if len(values) > 1 else None):
+            has_header = True
 
     style_name = TABLE_STYLE_MAP.get(style.lower(), style)
 
@@ -642,9 +918,9 @@ def page_setup(
     if fit_to_wide is not None or fit_to_tall is not None:
         ps.Zoom = False
         if fit_to_wide is not None:
-            ps.FitToPagesWide = fit_to_wide
+            ps.FitToPagesWide = False if fit_to_wide == 0 else fit_to_wide
         if fit_to_tall is not None:
-            ps.FitToPagesTall = fit_to_tall
+            ps.FitToPagesTall = False if fit_to_tall == 0 else fit_to_tall
 
     if center_horizontally is not None:
         ps.CenterHorizontally = center_horizontally
@@ -704,5 +980,3 @@ def add_image(
 
 
 # ── V4 分析工具群 ─────────────────────────────────────────────────────────────
-
-

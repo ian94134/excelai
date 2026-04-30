@@ -67,7 +67,7 @@ def _undo_last_body(entry):
     sheet = args.get("sheet")
 
     # ── Category B：回寫 formats_before（Phase 3：format_range / set_borders）──
-    if name in ("format_range", "set_borders"):
+    if name in ("format_range", "set_borders", "beautify_range"):
         if entry.formats_before is None or not entry.formats_before:
             return {
                 "status":  "cannot_undo",
@@ -91,6 +91,9 @@ def _undo_last_body(entry):
         ws    = _get_sheet(excel, sheet)
         rng   = ws.Range(rng_addr)
         rows  = entry.values_before
+        if rows == []:
+            rng.ClearContents()
+            return {"status": "ok", "undone": name, "range": rng_addr}
         # 單格範圍用 scalar 寫入；多格用批次寫入（一次 COM call，避免大範圍 O(n×m) 開銷）
         if len(rows) == 1 and len(rows[0]) == 1:
             rng.Value = rows[0][0] if rows[0][0] is not None else ""
@@ -230,6 +233,7 @@ def _undo_last_body(entry):
         "advanced_filter":        "進階篩選結果無法自動還原。",
         "name_range":             "具名範圍可使用 Excel 名稱管理員手動刪除。",
         "find_duplicates":        "重複值標記或刪除後無法自動還原。",
+        "beautify_range":         "一鍵美化格式備份未擷取，無法還原。",
         "apply_table_style":      "表格樣式格式備份尚未實作，無法還原。",
         "format_chart":           "圖表格式備份尚未實作，無法還原。",
         "create_combo_chart":     "組合圖建立後若要撤銷請呼叫 delete_chart。",
@@ -252,5 +256,3 @@ def _undo_last_body(entry):
     }
     reason = CANNOT_UNDO_REASON.get(name, f"「{name}」屬於尚未支援還原的操作類型。")
     return {"status": "cannot_undo", "tool": name, "message": reason}
-
-    return {"status": "ok", "range": range_addr, "delimiter": delimiter}

@@ -30,7 +30,7 @@ from excel.format import (
     format_range, set_borders, add_conditional_format,
     merge_cells, unmerge_cells,
     freeze_panes, auto_fit, set_column_width, set_row_height,
-    apply_table_style, set_tab_color, add_image, add_sparklines,
+    beautify_range, apply_table_style, set_tab_color, add_image, add_sparklines,
     set_print_titles, add_header_footer, page_setup,
 )
 from excel.sheet import (
@@ -66,7 +66,7 @@ __all__ = [
     "format_range", "set_borders", "add_conditional_format",
     "merge_cells", "unmerge_cells",
     "freeze_panes", "auto_fit", "set_column_width", "set_row_height",
-    "apply_table_style", "set_tab_color", "add_image", "add_sparklines",
+    "beautify_range", "apply_table_style", "set_tab_color", "add_image", "add_sparklines",
     "set_print_titles", "add_header_footer", "page_setup",
     # sheet
     "insert_row", "delete_row", "insert_column", "delete_column",

@@ -217,6 +217,51 @@ def _summarize_repeated_tool_result(tool_name: str, result_json: str) -> str:
     return f"{prefix}\n\n請展開上方工具結果查看完整內容。"
 
 
+def _summarize_completed_tool_result(tool_name: str, result_json: str) -> str:
+    """Build a plain final message when a successful tool call had no LLM final."""
+    try:
+        payload = json.loads(result_json)
+    except Exception:
+        payload = {}
+
+    if tool_name == "beautify_range" and isinstance(payload, dict):
+        sheet = payload.get("sheet") or "目前工作表"
+        range_addr = payload.get("range") or payload.get("range_addr") or "指定範圍"
+        theme = payload.get("theme") or "預設"
+        applied = payload.get("applied") or []
+        details = []
+        if any(str(item).startswith("header") for item in applied):
+            details.append("表頭")
+        if any(str(item).startswith("banded_rows") for item in applied):
+            details.append("交錯列底色")
+        if any(str(item).startswith("number_format") for item in applied):
+            details.append("數字格式")
+        if "filter" in applied:
+            details.append("篩選按鈕")
+        if "auto_fit_columns" in applied:
+            details.append("自動欄寬")
+        detail_text = "、".join(details) if details else "基礎美化格式"
+        return f"已完成表格美化：`{sheet}!{range_addr}`，套用 `{theme}` 主題，包含{detail_text}。"
+
+    if tool_name == "write_range" and isinstance(payload, dict):
+        target = payload.get("range") or payload.get("range_addr") or "指定範圍"
+        return f"已完成寫入：`{target}`。"
+
+    if tool_name == "fill_series" and isinstance(payload, dict):
+        target = payload.get("range") or payload.get("filled_range") or payload.get("start_cell") or "指定範圍"
+        return f"已完成數列填入：`{target}`。"
+
+    if tool_name == "query_range" and isinstance(payload, dict):
+        count = payload.get("filtered_count")
+        aggregation = payload.get("aggregation_result") or payload.get("aggregation")
+        if count is not None and aggregation is not None:
+            return f"查詢完成：符合條件 {count} 筆，彙總結果為 `{aggregation}`。"
+        if count is not None:
+            return f"查詢完成：符合條件 {count} 筆。"
+
+    return "已完成操作。"
+
+
 def _enrich_error_result(tool_name: str, result_json: str) -> str:
     """
     Append structured hint and suggested_next to an error result JSON.
@@ -305,6 +350,367 @@ def _is_clarification(text: str) -> bool:
     return has_question_mark and bool(_CLARIFY_RE.search(text))
 
 
+_FORMAT_STYLE_KEYS = {
+    "bold",
+    "italic",
+    "color",
+    "fill",
+    "font_size",
+    "number_format",
+    "horizontal_alignment",
+}
+
+
+def _last_user_text(messages: list[dict]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            return str(msg.get("content") or "")
+    return ""
+
+
+def _repair_format_range_args(arguments: dict, user_text: str) -> dict:
+    """
+    Some OpenAI-compatible local models occasionally call format_range with
+    only range_addr/sheet even when the prompt explicitly names simple styles.
+    Keep executor-level no-op rejection, but conservatively recover common
+    style words from the user's latest prompt.
+    """
+    if any(arguments.get(k) is not None for k in _FORMAT_STYLE_KEYS):
+        return arguments
+
+    text = user_text.lower()
+    repaired = dict(arguments)
+
+    if "粗體" in user_text or "bold" in text:
+        repaired["bold"] = True
+    if "斜體" in user_text or "italic" in text:
+        repaired["italic"] = True
+
+    fill_map = {
+        "藍底": "#4472C4",
+        "藍色底": "#4472C4",
+        "黃底": "#FFFF00",
+        "黃色底": "#FFFF00",
+        "綠底": "#00B050",
+        "綠色底": "#00B050",
+        "紅底": "#FF0000",
+        "紅色底": "#FF0000",
+        "黑底": "#000000",
+        "黑色底": "#000000",
+        "白底": "#FFFFFF",
+        "白色底": "#FFFFFF",
+    }
+    for token, color in fill_map.items():
+        if token in user_text:
+            repaired["fill"] = color
+            break
+
+    font_color_map = {
+        "白字": "#FFFFFF",
+        "白色字": "#FFFFFF",
+        "黑字": "#000000",
+        "黑色字": "#000000",
+        "紅字": "#FF0000",
+        "紅色字": "#FF0000",
+        "藍字": "#0070C0",
+        "藍色字": "#0070C0",
+        "綠字": "#00B050",
+        "綠色字": "#00B050",
+    }
+    for token, color in font_color_map.items():
+        if token in user_text:
+            repaired["color"] = color
+            break
+
+    if "置中" in user_text or "居中" in user_text or "center" in text:
+        repaired["horizontal_alignment"] = "center"
+    elif "靠左" in user_text or "向左" in user_text or "left" in text:
+        repaired["horizontal_alignment"] = "left"
+    elif "靠右" in user_text or "向右" in user_text or "right" in text:
+        repaired["horizontal_alignment"] = "right"
+
+    return repaired
+
+
+def _header_column_index(arguments: dict, user_text: str) -> int | None:
+    range_addr = arguments.get("range_addr")
+    if not range_addr:
+        return None
+
+    try:
+        rows = et.read_range(str(range_addr), arguments.get("sheet"))
+    except Exception:
+        return None
+    if not rows:
+        return None
+
+    headers = rows[0]
+    lowered = user_text.lower()
+    for idx, header in enumerate(headers, start=1):
+        if header is None:
+            continue
+        name = str(header).strip()
+        if name and name.lower() in lowered:
+            return idx
+    return None
+
+
+def _repair_range_column_args(tool_name: str, arguments: dict, user_text: str) -> dict:
+    if tool_name not in {"sort_range", "filter_range"}:
+        return arguments
+
+    repaired = dict(arguments)
+    idx = _header_column_index(repaired, user_text)
+    if idx is not None:
+        repaired["column_index"] = idx
+
+    if tool_name == "sort_range":
+        if any(token in user_text for token in ("表頭", "標題", "第一列")):
+            repaired["has_header"] = True
+        lowered = user_text.lower()
+        if any(token in user_text for token in ("由大到小", "大到小", "降冪")) or "descending" in lowered:
+            repaired["ascending"] = False
+        elif any(token in user_text for token in ("由小到大", "小到大", "升冪")) or "ascending" in lowered:
+            repaired["ascending"] = True
+
+    elif tool_name == "filter_range" and not repaired.get("criteria"):
+        # Common phrasing: "Region 是 North" / "Region=North".
+        try:
+            rows = et.read_range(str(repaired["range_addr"]), repaired.get("sheet"))
+            headers = [str(h).strip() for h in (rows[0] if rows else [])]
+            if idx is not None and 1 <= idx <= len(headers):
+                header = re.escape(headers[idx - 1])
+                match = re.search(rf"{header}\s*(?:=|是|為)\s*([A-Za-z0-9_\-]+)", user_text)
+                if match:
+                    repaired["criteria"] = match.group(1)
+        except Exception:
+            pass
+
+    return repaired
+
+
+def _repair_data_validation_args(arguments: dict, user_text: str) -> dict:
+    repaired = dict(arguments)
+
+    if not repaired.get("options"):
+        for alias in ("formula1", "formula", "values", "items"):
+            value = repaired.get(alias)
+            if value:
+                repaired["options"] = value
+                break
+
+    if not repaired.get("options"):
+        match = re.search(
+            r"(?:選項|清單|下拉選單|options?)\s*(?:是|為|=|:|：)?\s*([^\n。]+)",
+            user_text,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            options = match.group(1).strip().strip("'\"`")
+            options = options.replace("，", ",").replace("、", ",").replace("；", ";")
+            repaired["options"] = options
+
+    for alias in ("formula1", "formula", "values", "items", "validation_type"):
+        repaired.pop(alias, None)
+
+    return repaired
+
+
+def _repair_fill_series_args(arguments: dict, user_text: str) -> dict:
+    repaired = dict(arguments)
+    text = user_text.lower()
+
+    if not repaired.get("start_value"):
+        match = re.search(r"start_value\s*=\s*([\-]?\d+(?:\.\d+)?)", text)
+        if not match:
+            match = re.search(r"從\s*([\-]?\d+(?:\.\d+)?)\s*(?:到|至)\s*([\-]?\d+(?:\.\d+)?)", user_text)
+        if not match:
+            match = re.search(r"填\s*([\-]?\d+(?:\.\d+)?)\s*(?:到|至)\s*([\-]?\d+(?:\.\d+)?)", user_text)
+        if match:
+            repaired["start_value"] = match.group(1)
+
+    if not repaired.get("count"):
+        match = re.search(r"count\s*=\s*(\d+)", text)
+        if match:
+            repaired["count"] = int(match.group(1))
+        else:
+            span = re.search(r"從\s*([\-]?\d+(?:\.\d+)?)\s*(?:到|至)\s*([\-]?\d+(?:\.\d+)?)", user_text)
+            if not span:
+                span = re.search(r"填\s*([\-]?\d+(?:\.\d+)?)\s*(?:到|至)\s*([\-]?\d+(?:\.\d+)?)", user_text)
+            if span:
+                try:
+                    start = float(span.group(1))
+                    end = float(span.group(2))
+                    step = float(repaired.get("step") or 1)
+                    if step:
+                        repaired["count"] = int(abs((end - start) / step)) + 1
+                except Exception:
+                    pass
+
+    return repaired
+
+
+def _repair_page_setup_args(arguments: dict, user_text: str) -> dict:
+    repaired = dict(arguments)
+    text = user_text.lower()
+
+    if "orientation" not in repaired:
+        if "landscape" in text or "橫向" in user_text or "橫印" in user_text:
+            repaired["orientation"] = "landscape"
+        elif "portrait" in text or "直向" in user_text or "直印" in user_text:
+            repaired["orientation"] = "portrait"
+
+    if "paper_size" not in repaired:
+        match = re.search(r"paper_size\s*=\s*([A-Za-z0-9]+)", text)
+        if match:
+            repaired["paper_size"] = match.group(1)
+        elif "a4" in text:
+            repaired["paper_size"] = "a4"
+
+    for key in ("fit_to_wide", "fit_to_tall"):
+        if key not in repaired:
+            match = re.search(rf"{key}\s*=\s*(\d+)", text)
+            if match:
+                repaired[key] = int(match.group(1))
+
+    if "print_area" not in repaired:
+        match = re.search(r"print_area\s*=\s*([A-Za-z]+\d+\s*:\s*[A-Za-z]+\d+)", user_text, flags=re.IGNORECASE)
+        if match:
+            repaired["print_area"] = match.group(1).replace(" ", "")
+
+    if "center_horizontally" not in repaired:
+        match = re.search(r"center_horizontally\s*=\s*(true|false)", text)
+        if match:
+            repaired["center_horizontally"] = match.group(1) == "true"
+        elif "水平置中" in user_text:
+            repaired["center_horizontally"] = True
+
+    if "center_vertically" not in repaired:
+        match = re.search(r"center_vertically\s*=\s*(true|false)", text)
+        if match:
+            repaired["center_vertically"] = match.group(1) == "true"
+        elif "垂直置中" in user_text:
+            repaired["center_vertically"] = True
+
+    return repaired
+
+
+def _repair_query_range_args(arguments: dict, user_text: str) -> dict:
+    repaired = dict(arguments)
+    query_text = f"{repaired.pop('query', '')} {user_text}".strip()
+
+    headers: list[str] = []
+    range_addr = repaired.get("range_addr")
+    if range_addr:
+        try:
+            rows = et.read_range(str(range_addr), repaired.get("sheet"))
+            headers = [str(h).strip() for h in (rows[0] if rows else []) if h is not None]
+        except Exception:
+            headers = []
+
+    if not repaired.get("filters") and not repaired.get("condition_json") and headers:
+        filters = []
+        for header in headers:
+            pattern = rf"{re.escape(header)}\s*(?:=|是|為)\s*([A-Za-z0-9_\-]+)"
+            match = re.search(pattern, query_text, flags=re.IGNORECASE)
+            if match:
+                filters.append({"column": header, "operator": "=", "value": match.group(1)})
+        if filters:
+            repaired["filters"] = filters
+
+    if not repaired.get("aggregation") and not repaired.get("aggregation_json") and headers:
+        lowered = query_text.lower()
+        function = None
+        if "加總" in query_text or "總和" in query_text or "sum" in lowered:
+            function = "sum"
+        elif "平均" in query_text or "average" in lowered or "avg" in lowered:
+            function = "avg"
+        elif "最大" in query_text or "max" in lowered:
+            function = "max"
+        elif "最小" in query_text or "min" in lowered:
+            function = "min"
+        elif "計數" in query_text or "筆數" in query_text or "count" in lowered:
+            function = "count"
+
+        if function:
+            agg_header = None
+            stat_words = "加總|總和|平均|最大|最小|計數|筆數|sum|average|avg|max|min|count"
+            for header in headers:
+                if header and re.search(rf"{re.escape(header)}\s*(?:{stat_words})", query_text, flags=re.IGNORECASE):
+                    agg_header = header
+                    break
+
+            if agg_header is None:
+                filter_columns = {
+                    str(f.get("column", "")).strip().lower()
+                    for f in repaired.get("filters", [])
+                    if isinstance(f, dict)
+                }
+                for header in headers:
+                    if header and header.lower() in lowered and header.lower() not in filter_columns:
+                        agg_header = header
+                        break
+
+            if agg_header is not None:
+                repaired["aggregation"] = {"function": function, "column": agg_header}
+            elif function == "count":
+                repaired["aggregation"] = {"function": "count", "column": headers[0]}
+
+    return repaired
+
+
+def _repair_tool_calls(resp: LLMResponse, messages: list[dict]) -> None:
+    user_text = _last_user_text(messages)
+    changed = False
+    for tc in resp.tool_calls:
+        if tc.name == "format_range":
+            repaired = _repair_format_range_args(tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+        elif tc.name in {"sort_range", "filter_range"}:
+            repaired = _repair_range_column_args(tc.name, tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+        elif tc.name == "set_data_validation":
+            repaired = _repair_data_validation_args(tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+        elif tc.name == "fill_series":
+            repaired = _repair_fill_series_args(tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+        elif tc.name == "page_setup":
+            repaired = _repair_page_setup_args(tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+        elif tc.name == "query_range":
+            repaired = _repair_query_range_args(tc.arguments, user_text)
+            if repaired != tc.arguments:
+                tc.arguments = repaired
+                changed = True
+
+    raw = resp.raw_assistant_message
+    if changed and isinstance(raw, dict):
+        raw_calls = raw.get("tool_calls")
+        if isinstance(raw_calls, list):
+            by_id = {tc.id: tc for tc in resp.tool_calls}
+            for raw_tc in raw_calls:
+                try:
+                    tc_id = raw_tc.get("id")
+                    tc = by_id.get(tc_id)
+                    if tc is not None:
+                        raw_tc["function"]["arguments"] = json.dumps(
+                            tc.arguments, ensure_ascii=False
+                        )
+                except Exception:
+                    pass
+
+
 # ── Data classes ─────────────────────────────────────────────────────────────
 
 @dataclass
@@ -362,6 +768,7 @@ def run_turn(
     last_sig: tuple[str, str] | None = None
     same_count = 0
     successful_results_by_sig: dict[tuple[str, str], str] = {}
+    last_successful_tool: tuple[str, str] | None = None
 
     for _iter in range(max_iterations):
         has_tool_call = False
@@ -416,6 +823,7 @@ def run_turn(
                 elif event == "tool_calls":
                     has_tool_call = True
                     resp: LLMResponse = data
+                    _repair_tool_calls(resp, msgs)
 
                     # Signal caller to append the assistant message immediately
                     yield (EVT_ASST_MSG, resp.raw_assistant_message or {
@@ -495,6 +903,7 @@ def run_turn(
                         ))
                         if not has_err:
                             successful_results_by_sig[sig] = result_json
+                            last_successful_tool = (tc.name, result_json)
 
                         # ── Auto-rollback on error ─────────────────────────
                         # Roll back all successfully backed-up steps from this
@@ -518,3 +927,14 @@ def run_turn(
         # No tool calls this iteration → LLM is done
         if not has_tool_call:
             break
+
+    if last_successful_tool is not None:
+        yield (
+            EVT_DONE,
+            _summarize_completed_tool_result(
+                last_successful_tool[0],
+                last_successful_tool[1],
+            ),
+        )
+    else:
+        yield (EVT_DONE, "完成 ✓")

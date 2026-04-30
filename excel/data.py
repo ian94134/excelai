@@ -203,8 +203,27 @@ def sort_range(
 def find_replace(find: str, replace: str, sheet: str | None = None) -> dict:
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
-    ws.Cells.Replace(What=find, Replacement=replace)
-    return {"status": "ok", "find": find, "replace": replace}
+    if ws.FilterMode:
+        try:
+            ws.ShowAllData()
+        except Exception:
+            pass
+
+    rng = ws.UsedRange
+    replaced = bool(rng.Replace(
+        What=find,
+        Replacement=replace,
+        LookAt=1,        # xlWhole: avoid Beta -> Beta-X still matching "Beta"
+        SearchOrder=1,   # xlByRows
+        MatchCase=False,
+    ))
+    return {
+        "status": "ok",
+        "find": find,
+        "replace": replace,
+        "replaced": replaced,
+        "range": rng.Address,
+    }
 
 
 
@@ -346,19 +365,31 @@ def add_comment(
 
 def set_data_validation(
     range_addr: str,
-    options: str | list,
+    options: str | list | None = None,
     title: str | None = None,
     message: str | None = None,
     sheet: str | None = None,
+    formula1: str | list | None = None,
+    validation_type: str | None = None,
 ) -> dict:
     """
     設定下拉選單資料驗證。
     options：選項清單（list）或直接引用範圍字串（如 "$E$1:$E$5"）
     title/message：選填，選取儲存格時顯示的提示標題與說明
     """
+    if options is None:
+        options = formula1
+    if options is None:
+        raise ValueError("set_data_validation requires options, e.g. 'A,B,C'.")
+
+    if validation_type and str(validation_type).lower() not in {"list", "dropdown", "清單", "下拉"}:
+        raise ValueError("Only list/dropdown data validation is currently supported.")
+
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
     rng = ws.Range(range_addr)
+    ws.Parent.Activate()
+    ws.Activate()
 
     if isinstance(options, list):
         formula = ",".join(str(o) for o in options)
@@ -533,7 +564,17 @@ def fill_series(
     start = ws.Range(start_cell).Cells(1, 1)
 
     if start_value is not None:
+        if series_type.lower() == "number" and isinstance(start_value, str):
+            text = start_value.strip()
+            try:
+                start_value = float(text) if "." in text else int(text)
+            except ValueError:
+                pass
         start.Value = start_value
+    elif start.Value in (None, ""):
+        raise InvalidToolArgumentsError(
+            "start_cell is empty; provide start_value so fill_series can create a visible series."
+        )
 
     if direction == "down":
         end_cell  = ws.Cells(start.Row + count - 1, start.Column)
@@ -562,6 +603,13 @@ def fill_series(
         kwargs["Date"] = date_unit
 
     rng.DataSeries(**kwargs)
+
+    if direction == "down":
+        written = [ws.Cells(start.Row + i, start.Column).Value for i in range(count)]
+    else:
+        written = [ws.Cells(start.Row, start.Column + i).Value for i in range(count)]
+    if all(v in (None, "") for v in written):
+        raise InvalidToolArgumentsError("fill_series completed without writing values; check start_value and direction.")
 
     return {
         "status":      "ok",
@@ -732,12 +780,21 @@ def advanced_filter(
     """
     excel = _get_excel()
     ws = _get_sheet(excel, sheet)
-    rng = ws.Range(range_addr)
+    wb = ws.Parent
 
-    crit_rng = ws.Range(criteria_range) if criteria_range else None
+    def _range(addr: str):
+        if "!" not in addr:
+            return ws.Range(addr)
+        sheet_name, range_part = addr.split("!", 1)
+        sheet_name = sheet_name.strip().strip("'")
+        return wb.Worksheets(sheet_name).Range(range_part)
+
+    rng = _range(range_addr)
+
+    crit_rng = _range(criteria_range) if criteria_range else None
 
     if dest_range:
-        dest_rng = ws.Range(dest_range)
+        dest_rng = _range(dest_range)
         rng.AdvancedFilter(
             Action=XL_FILTER_COPY,
             CriteriaRange=crit_rng,
@@ -796,4 +853,3 @@ def split_text_to_columns(
 
 
 # ── 工作表快照（突破 undo 20 步限制）────────────────────────────────────────
-

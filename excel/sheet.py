@@ -159,15 +159,15 @@ def move_sheet(
     ws = _get_sheet(excel, name)
     if before:
         target = _get_sheet(excel, before)
-        ws.Move(Before=target)
+        ws.Move(target, None)
     elif after:
         target = _get_sheet(excel, after)
-        ws.Move(After=target)
+        ws.Move(None, target)
     else:
         # 移到最後（After 最後一張）
         last = wb.Sheets(wb.Sheets.Count)
         if last.Name != name:
-            ws.Move(After=last)
+            ws.Move(None, last)
     return {"status": "ok", "moved": name, "before": before, "after": after}
 
 
@@ -192,13 +192,13 @@ def copy_sheet(
 
     if before:
         target = _get_sheet(excel, before)
-        ws.Copy(Before=target)
+        ws.Copy(target, None)
     elif after:
         target = _get_sheet(excel, after)
-        ws.Copy(After=target)
+        ws.Copy(None, target)
     else:
         last = wb.Sheets(wb.Sheets.Count)
-        ws.Copy(After=last)
+        ws.Copy(None, last)
 
     # 複製後新工作表自動成為 ActiveSheet
     copied_ws = excel.ActiveSheet
@@ -504,8 +504,8 @@ def copy_range_between_workbooks(
 
     rows = len(values)
     cols = max(len(r) for r in values)
-    start   = dst_ws.Range(dest_range).Cells(1, 1)
-    end     = start.Offset(rows - 1, cols - 1)
+    start = dst_ws.Range(dest_range).Cells(1, 1)
+    end   = dst_ws.Cells(start.Row + rows - 1, start.Column + cols - 1)
     dst_rng = dst_ws.Range(start, end)
 
     if values_only:

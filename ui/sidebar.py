@@ -12,6 +12,7 @@ import session
 import backup
 import telemetry
 import excel_event_watcher
+from ui.tool_display import friendly_tool_label
 
 
 def _init_provider(base_url: str, model: str):
@@ -152,13 +153,19 @@ def _render_undo_panel() -> None:
     # 顯示堆疊狀態
     st.caption(f"可復原步數：**{stack_size}** / 20")
     if last_entry:
-        st.caption(f"最後操作：`{last_entry.tool_name}`（{last_entry.timestamp:%H:%M:%S}）")
+        st.caption(
+            f"最後操作：**{friendly_tool_label(last_entry.tool_name)}**"
+            f"（{last_entry.timestamp:%H:%M:%S}）"
+        )
 
     # 展開顯示完整堆疊（最新在前）
     if stack_size > 1:
         with st.expander(f"查看全部 {stack_size} 步"):
             for i, entry in enumerate(reversed(stack.snapshot())):
-                st.text(f"{i + 1}. {entry.tool_name}（{entry.timestamp:%H:%M:%S}）")
+                st.text(
+                    f"{i + 1}. {friendly_tool_label(entry.tool_name)}"
+                    f"（{entry.timestamp:%H:%M:%S}）"
+                )
 
     if st.button("↶ 復原上一步", use_container_width=True, type="primary"):
         try:
@@ -166,7 +173,7 @@ def _render_undo_panel() -> None:
             payload = json.loads(raw)
             status = payload.get("status")
             if status == "ok":
-                st.toast(f"✅ 已復原：{payload.get('undone', '')}", icon="↶")
+                st.toast(f"✅ 已復原：{friendly_tool_label(payload.get('undone', ''))}", icon="↶")
             elif status == "no_op":
                 st.info("備份堆疊為空，沒有可復原的操作。")
             elif status == "cannot_undo":
@@ -339,13 +346,17 @@ def _render_op_log() -> None:
             for i, entry in enumerate(reversed(all_ops)):
                 rng = entry.arguments.get("range_addr", "")
                 detail = f"  `{rng}`" if rng else ""
-                st.text(f"{i+1:02d}. {entry.timestamp:%H:%M:%S}  {entry.tool_name}{detail}")
+                st.text(
+                    f"{i+1:02d}. {entry.timestamp:%H:%M:%S}  "
+                    f"{friendly_tool_label(entry.tool_name)}{detail}"
+                )
 
         # 唯讀操作
         if read_ops:
             st.caption("**讀取 / 唯讀操作**")
             for item in read_ops[-10:]:  # 最多顯示最後 10 筆
-                st.text(f"     {item['time']}  {item['tool']}")
+                label = item.get("label") or friendly_tool_label(item.get("tool"))
+                st.text(f"     {item['time']}  {label}")
 
         if st.button("🗑️ 清除記錄", use_container_width=True):
             if stack:
@@ -367,17 +378,17 @@ def _render_telemetry() -> None:
     c1.metric("總操作數", stats["total"])
     c2.metric("成功率", f"{stats['success_rate'] * 100:.1f}%")
 
-    # ── 最常用工具 ────────────────────────────────────────────────────────────
+    # ── 最常用操作 ────────────────────────────────────────────────────────────
     if stats["top_tools"]:
-        with st.expander("🏆 最常用工具", expanded=True):
+        with st.expander("🏆 最常用操作", expanded=True):
             for rank, (name, cnt) in enumerate(stats["top_tools"], 1):
-                st.text(f"  {rank}. {name:<28} {cnt} 次")
+                st.text(f"  {rank}. {friendly_tool_label(name):<28} {cnt} 次")
 
     # ── 平均最慢工具 ───────────────────────────────────────────────
     if stats["slowest_tools"]:
         with st.expander("⏱️ 平均耗時最久（≥3 次）", expanded=False):
             for name, avg_ms in stats["slowest_tools"]:
-                st.text(f"  {name:<28} {avg_ms} ms")
+                st.text(f"  {friendly_tool_label(name):<28} {avg_ms} ms")
 
     # ── 最近錯誤 ───────────────────────────────────────────────────────────
     if stats["recent_errors"]:
@@ -386,7 +397,7 @@ def _render_telemetry() -> None:
             expanded=False,
         ):
             for tool, err_type, ts in stats["recent_errors"]:
-                st.text(f"  {ts[11:19]}  {tool} → {err_type or 'Unknown'}")
+                st.text(f"  {ts[11:19]}  {friendly_tool_label(tool)} → {err_type or 'Unknown'}")
 
     # ── 清除按鈕 ───────────────────────────────────────────────────────
     if st.button("🗑️ 清除使用統計", use_container_width=True):
@@ -449,7 +460,7 @@ def _render_macro_panel() -> None:
         if pending:
             st.warning(f"巨集「{pending['name']}」包含危險工具，請確認是否執行。")
             for step in pending.get("dangerous_steps", []):
-                st.caption(f"第 {step['index']} 步：`{step['tool']}`")
+                st.caption(f"第 {step['index']} 步：{friendly_tool_label(step['tool'])}")
             confirm_col, cancel_col = st.columns(2)
             with confirm_col:
                 if st.button("確認執行", key="confirm_macro_run", type="primary", use_container_width=True):

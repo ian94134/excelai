@@ -1057,10 +1057,69 @@ OPENAI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "beautify_range",
+            "description": (
+                "一鍵美化資料範圍，不建立正式表格，適合快速把普通資料變成可交付報表。\n"
+                "會自動套用：表頭底色白字粗體、交錯列底色、細框線、垂直置中、自動欄寬、數字欄格式。\n"
+                "適合使用者說「美化這張表」「把資料整理漂亮」「套報表格式」「讓這個範圍好看一點」時優先使用。\n"
+                "theme 推薦：blue=商務藍、green=清爽綠、gray=灰階極簡、orange=活潑橘、purple=強調紫。\n"
+                "一般美化完成後不要再自動呼叫 apply_table_style；只有使用者明確要求正式 Excel Table 或表格物件時才需要。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "range_addr": {
+                        "type": "string",
+                        "description": "要美化的完整範圍，通常包含標題列，如 'A1:G10'",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "enum": ["blue", "green", "gray", "orange", "purple"],
+                        "description": "視覺主題；預設 blue",
+                    },
+                    "has_header": {
+                        "type": "boolean",
+                        "description": "第一列是否為標題列；預設 true",
+                    },
+                    "banded_rows": {
+                        "type": "boolean",
+                        "description": "是否套用交錯列底色；預設 true",
+                    },
+                    "auto_fit_columns": {
+                        "type": "boolean",
+                        "description": "是否自動調整欄寬；預設 true",
+                    },
+                    "freeze_header": {
+                        "type": "boolean",
+                        "description": "是否凍結標題列；預設 false",
+                    },
+                    "apply_filter": {
+                        "type": "boolean",
+                        "description": "是否套用 AutoFilter；預設 true",
+                    },
+                    "number_format": {
+                        "type": "string",
+                        "description": "數字格式；預設 auto。可填 '#,##0.00' 或 'none' 關閉自動格式。",
+                    },
+                    "font_name": {
+                        "type": "string",
+                        "description": "字型名稱；預設 Calibri",
+                    },
+                    "sheet": {"type": "string"},
+                },
+                "required": ["range_addr"],
+            },
+        },
+    },
+
+    {
+        "type": "function",
+        "function": {
             "name": "apply_table_style",
             "description": (
                 "將儲存格範圍轉換為 Excel 正式表格（ListObject），一次套用帶狀底色、標題粗體、自動篩選按鈕。\n"
-                "這是讓資料表立刻變漂亮最有效的工具，建議每次格式化後優先使用。\n"
+                "使用時機：使用者明確要求「正式 Excel Table」「表格物件」「轉成表格」或需要結構化參照時。\n"
+                "不要把一般的「美化、變漂亮、整理成報表」自動導向此工具；一般美化請優先使用 beautify_range。\n"
                 "style 常用推薦：\n"
                 "  blue（藍，最專業）、green（綠）、orange（橘）、gray（灰，低調）\n"
                 "  dark_blue（深藍，強調）、light_blue（淡藍，輕盈）\n"
@@ -1828,22 +1887,22 @@ OPENAI_TOOLS = [
             "name": "copy_range_between_workbooks",
             "description": (
                 "跨活頁簿複製範圍資料（值複製，來源不受影響）。\n"
-                "操作前請先用 list_workbooks 確認來源和目標活頁簿名稱。"
+                "操作前請先用 list_workbooks 確認來源和目標活頁簿名稱。\n"
+                "values_only=true（預設）只複製值；false 則同時複製格式。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "source_range": {"type": "string",  "description": "來源範圍（如 'A1:D10'）"},
-                    "dest_range":   {"type": "string",  "description": "目標起始儲存格（如 'A1'）"},
-                    "source_wb":    {"type": "string",  "description": "來源活頁簿名稱；省略時用目前作用中活頁簿"},
-                    "dest_wb":      {"type": "string",  "description": "目標活頁簿名稱；省略時用目前作用中活頁簿"},
-                    "source_sheet": {"type": "string",  "description": "來源工作表名稱；省略時用作用中工作表"},
-                    "dest_sheet":   {"type": "string",  "description": "目標工作表名稱；省略時用作用中工作表"},
-                    "values_only":  {"type": "boolean", "description": "僅複製值（預設 true）"},
+                    "source_range": {"type": "string", "description": "來源範圍，如 'A1:D10'"},
+                    "dest_range":   {"type": "string", "description": "目標起始格，如 'A1'"},
+                    "source_wb":    {"type": "string", "description": "來源活頁簿名稱；省略=作用中活頁簿"},
+                    "dest_wb":      {"type": "string", "description": "目標活頁簿名稱；省略=作用中活頁簿"},
+                    "source_sheet": {"type": "string", "description": "來源工作表名稱；省略=作用中工作表"},
+                    "dest_sheet":   {"type": "string", "description": "目標工作表名稱；省略=目標活頁簿第一張"},
+                    "values_only":  {"type": "boolean", "description": "true=只複製值（預設）；false=同時複製格式"},
                 },
                 "required": ["source_range", "dest_range"],
             },
         },
     },
-
 ]
