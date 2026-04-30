@@ -11,13 +11,15 @@ UI 版本：v4.8.0
 - 既有 71 個工具主流程已全部跑完。
 - 新增 `beautify_range` 一鍵表格美化工具，目前工具總數為 72。
 - 最終結果：72 PASS / 0 FAIL（既有 71 工具 + 新增 `beautify_range`）。
-- 針對本輪修復與新增工具的 `pytest` 回歸測試：18 PASS / 0 FAIL。
+- 針對本輪修復與新增工具的 `pytest` 回歸測試：22 PASS / 0 FAIL。
 - 重新用 Web UI 模擬使用者做短煙霧測試：`fill_series`、`query_range`、`beautify_range`、`write_range` + `undo_last` 全部 PASS。
 - 追加完全白話輸入測試已自動化為 `tools_web_ui_smoke.py --case-set plain`：美化報表、查 North 總金額、寫入 `Report!AA1`。
 - Web UI 已將一般使用者可見的工具名稱改為白話操作名稱；原始工具名保留在「技術細節」展開區。
+- 新增 5 個常用任務快捷按鈕：美化目前表格、產生資料摘要、查詢加總資料、建立報告圖表、復原上一步。
+- in-app browser 實測已點擊「查詢加總資料」快捷任務，成功用白話 prompt 產生分組加總結果。
 - 新增可重跑的 Web UI smoke 流程與固定測試活頁簿 fixture。
 - 測試中發現並修復多個「UI 顯示成功但 Excel 實際沒有變」的問題。
-- 最後語法檢查通過：`agent.py`、`config.py`、`main.py`、`ui/sidebar.py`、`ui/tool_display.py`、`excel/data.py`、`excel/format.py`、`excel/_undo.py`、`excel_tools.py`、`tools/definition.py`、`tools/executor.py`、`backup.py`、`tools_web_ui_smoke.py`、`scripts/build_web_ui_smoke_fixture.py`、`tests/test_beautify_range_contract.py`、`tests/test_web_ui_regression_repairs.py`、`tests/test_web_ui_smoke_assets.py`、`tests/test_tool_display.py`。
+- 最後語法檢查通過：`agent.py`、`config.py`、`main.py`、`ui/sidebar.py`、`ui/tool_display.py`、`ui/quick_actions.py`、`excel/data.py`、`excel/format.py`、`excel/_undo.py`、`excel_tools.py`、`tools/definition.py`、`tools/executor.py`、`backup.py`、`tools_web_ui_smoke.py`、`scripts/build_web_ui_smoke_fixture.py`、`tests/test_beautify_range_contract.py`、`tests/test_web_ui_regression_repairs.py`、`tests/test_web_ui_smoke_assets.py`、`tests/test_tool_display.py`、`tests/test_quick_actions.py`。
 
 ## 修復項目
 
@@ -37,6 +39,7 @@ UI 版本：v4.8.0
 | 白話「整理漂亮」後模型又轉正式表格，可能造成 Excel 產生 `欄1/欄2` 並推移原表頭 | 收斂 `config.py` 與工具描述；一般美化只用 `beautify_range`，`apply_table_style` 僅限明確要求正式 Excel Table；並加上表頭偵測保護 |
 | 工具已成功執行但模型最後沒有輸出文字時，Web UI 可能停在思考狀態 | `agent.py` 會用已成功的工具結果產生簡短完成訊息 |
 | 一般使用者看不懂 `query_range` / `write_range` 等內部工具名 | 新增 `ui/tool_display.py`，狀態列、側邊欄、確認訊息與模型回覆會轉成白話操作名稱；技術細節仍可展開查看 |
+| 一般使用者不知道要怎麼下 prompt | 新增 `ui/quick_actions.py` 與 5 個固定快捷任務按鈕；按鈕只送白話 prompt，仍走原本 chat/tool/safety 流程 |
 
 ## 覆蓋結果
 
@@ -78,8 +81,9 @@ UI 版本：v4.8.0
 新增 Web UI smoke 規格測試：`tests/test_web_ui_smoke_assets.py`  
 新增美化工具契約測試：`tests/test_beautify_range_contract.py`  
 新增 UI 工具名友善顯示測試：`tests/test_tool_display.py`  
-指令：`python -B -m pytest tests\test_tool_display.py tests\test_web_ui_smoke_assets.py tests\test_beautify_range_contract.py tests\test_web_ui_regression_repairs.py -q`  
-結果：18 PASS / 0 FAIL
+新增常用任務快捷按鈕測試：`tests/test_quick_actions.py`
+指令：`python -B -m pytest tests\test_quick_actions.py tests\test_tool_display.py tests\test_web_ui_smoke_assets.py tests\test_beautify_range_contract.py tests\test_web_ui_regression_repairs.py -q`
+結果：22 PASS / 0 FAIL
 
 覆蓋範圍：
 
@@ -98,6 +102,9 @@ UI 版本：v4.8.0
 - Web UI smoke case 順序固定為 `fill_series` → `query_range` → `beautify_range` → `write_range` → `undo_last`。
 - 白話 smoke case 固定為「美化主管報表」→「查 North 總金額」→「寫入 Report!AA1」，且 prompt 不含工具名。
 - `sanitize_assistant_text` 會把模型輸出的工具 checklist 轉成白話操作名稱。
+- 快捷任務按鈕固定為「美化目前表格、產生資料摘要、查詢加總資料、建立報告圖表、復原上一步」，且 prompt 不含工具名。
+- 快捷任務 smoke case 固定覆蓋「美化目前表格」與「產生資料摘要」。
+- in-app browser 實測「查詢加總資料」快捷任務會自動送出白話 prompt，最後回覆 North 最高 `500.0`、總計 `880.0`。
 
 ## 本輪新增自動化檔案
 
@@ -105,10 +112,11 @@ UI 版本：v4.8.0
 | --- | --- |
 | `scripts/build_web_ui_smoke_fixture.py` | 產生固定測試活頁簿 `tests/fixtures/web_ui_smoke_base.xlsx` |
 | `tests/fixtures/web_ui_smoke_base.xlsx` | Web UI smoke 的 golden workbook；包含 `Report` 與 `SalesData` |
-| `tools_web_ui_smoke.py` | 可重跑的短版 Web UI smoke runner；支援 `--case-set tool/plain/all` |
+| `tools_web_ui_smoke.py` | 可重跑的短版 Web UI smoke runner；支援 `--case-set tool/plain/quick/all` |
 | `tests/test_beautify_range_contract.py` | 驗證 `beautify_range` schema、executor 與 backup 設定 |
 | `tests/test_web_ui_smoke_assets.py` | 不依賴瀏覽器的 smoke case 與 fixture 規格測試 |
 | `tests/test_tool_display.py` | 驗證 UI 會把工具名轉成白話操作名稱 |
+| `tests/test_quick_actions.py` | 驗證快捷任務 prompt 與 `_queued_prompt` 行為 |
 
 基本指令：
 
@@ -117,6 +125,7 @@ python -B scripts\build_web_ui_smoke_fixture.py
 python -B tools_web_ui_smoke.py --prepare-only
 python -B tools_web_ui_smoke.py --url http://localhost:8501/
 python -B tools_web_ui_smoke.py --case-set plain --workbook web_ui_plain_smoke_work.xlsx --url http://localhost:8501/
+python -B tools_web_ui_smoke.py --case-set quick --workbook web_ui_quick_smoke_work.xlsx --url http://localhost:8501/
 ```
 
 ## 本輪 Web UI 短煙霧重跑
@@ -139,6 +148,14 @@ UI 顯示驗證活頁簿：`web_ui_plain_smoke_ui.xlsx`
 | `這張表裡 North 的總金額是多少？` | 回覆 North 有 4 筆，合計 `500.0` | 原資料列未被推移，4 筆 North 合計正確 |
 | `幫我在 Report 工作表的 AA1 寫上「白話輸入OK」。` | 回覆已寫入 `Report!AA1` | `Report!AA1 = 白話輸入OK` |
 | `這張表裡 North 的總金額是多少？`（UI 顯示檢查） | 回覆合計 `500.0`，可見狀態為「已讀取資料 / 已查詢資料」 | 未在可見 checklist 顯示 `query_range` 或 `get_used_range` |
+
+## 本輪快捷任務 UI 實測
+
+測試活頁簿：`web_ui_quick_action_ui.xlsx`
+
+| 使用者操作 | UI 結果 | 驗證重點 |
+| --- | --- | --- |
+| 點擊「查詢加總資料」快捷按鈕 | 系統自動送出「幫我找出目前資料中各類別或地區的總金額，並指出最高的一組。」 | 回覆依地區與類別分組加總，North 為最高地區 `500.0`，總計 `880.0`；使用者不需要知道工具名 |
 
 ## 注意
 

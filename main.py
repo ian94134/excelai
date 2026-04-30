@@ -21,6 +21,7 @@ from agent import (
 )
 from utils import col_letter as _col_letter
 from ui.tool_display import friendly_tool_label, friendly_tool_status, sanitize_assistant_text
+from ui.quick_actions import QUICK_ACTIONS, queue_quick_action
 
 VERSION = "v4.8.0"
 
@@ -549,6 +550,15 @@ if "_pending_plan" in st.session_state:
     st.stop()
 
 queued_prompt = st.session_state.pop("_queued_prompt", None)
+if queued_prompt is None:
+    st.caption("常用任務")
+    quick_cols = st.columns(len(QUICK_ACTIONS))
+    for quick_col, action in zip(quick_cols, QUICK_ACTIONS):
+        with quick_col:
+            if st.button(action.label, key=f"quick_action_{action.key}", use_container_width=True):
+                queue_quick_action(st.session_state, action.key)
+                st.rerun()
+
 prompt = queued_prompt or st.chat_input("例：篩選台北的資料 / 合併 A1:D1 / 設定外框線 / 建立下拉選單")
 
 if prompt:

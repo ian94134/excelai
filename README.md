@@ -207,7 +207,13 @@ python -B tools_web_ui_smoke.py --url http://localhost:8501/
 python -B tools_web_ui_smoke.py --case-set plain --workbook web_ui_plain_smoke_work.xlsx --url http://localhost:8501/
 ```
 
-`tools_web_ui_smoke.py` 需要 Playwright 才能自動操作瀏覽器；一般 `pytest` 不依賴 Playwright，只驗證 fixture、工具名 smoke case、白話 smoke case 與 UI 友善顯示規格。
+快捷任務的 prompt 也有固定 smoke 規格：
+
+```powershell
+python -B tools_web_ui_smoke.py --case-set quick --workbook web_ui_quick_smoke_work.xlsx --url http://localhost:8501/
+```
+
+`tools_web_ui_smoke.py` 需要 Playwright 才能自動操作瀏覽器；一般 `pytest` 不依賴 Playwright，只驗證 fixture、工具名 smoke case、白話 smoke case、快捷任務 prompt 與 UI 友善顯示規格。
 
 ## 常見問題
 

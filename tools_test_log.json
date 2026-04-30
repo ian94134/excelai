@@ -8,7 +8,8 @@
         "web_ui_v47_second.xlsx",
         "web_ui_smoke_work.xlsx",
         "web_ui_natural_smoke_20260429_174527.xlsx",
-        "web_ui_plain_smoke_ui.xlsx"
+        "web_ui_plain_smoke_ui.xlsx",
+        "web_ui_quick_action_ui.xlsx"
   ],
   "summary": {
     "total_tools": 72,
@@ -30,7 +31,8 @@
             "natural-language beautify avoids automatic apply_table_style",
             "successful-tool fallback completion message",
             "plain-language Web UI smoke case set",
-            "user-facing tool labels in Web UI"
+            "user-facing tool labels in Web UI",
+            "quick action buttons for common user tasks"
     ]
   },
   "regression_tests": {
@@ -38,10 +40,11 @@
       "tests/test_beautify_range_contract.py",
       "tests/test_web_ui_regression_repairs.py",
       "tests/test_web_ui_smoke_assets.py",
-      "tests/test_tool_display.py"
+      "tests/test_tool_display.py",
+      "tests/test_quick_actions.py"
     ],
-    "command": "python -B -m pytest tests\\test_tool_display.py tests\\test_web_ui_smoke_assets.py tests\\test_beautify_range_contract.py tests\\test_web_ui_regression_repairs.py -q",
-        "pass": 18,
+    "command": "python -B -m pytest tests\\test_quick_actions.py tests\\test_tool_display.py tests\\test_web_ui_smoke_assets.py tests\\test_beautify_range_contract.py tests\\test_web_ui_regression_repairs.py -q",
+        "pass": 22,
     "fail": 0,
     "coverage": [
       "format_range natural-language argument repair",
@@ -58,7 +61,10 @@
             "web UI smoke fixture has 4 North rows and Amount sum 500",
             "web UI smoke case order is fill_series -> query_range -> beautify_range -> write_range -> undo_last",
             "plain-language smoke case set contains no tool-name prompts",
-            "tool names are converted to user-facing labels in chat/sidebar/status text"
+            "tool names are converted to user-facing labels in chat/sidebar/status text",
+            "quick action buttons queue plain-language prompts through the existing chat flow",
+            "quick action smoke case set covers beautify and summary prompts",
+            "in-app browser clicked the quick action query button and received grouped totals"
     ]
   },
   "web_ui_smoke_automation": {
@@ -68,6 +74,7 @@
     "prepare_command": "python -B tools_web_ui_smoke.py --prepare-only",
     "run_command": "python -B tools_web_ui_smoke.py --url http://localhost:8501/",
     "plain_language_run_command": "python -B tools_web_ui_smoke.py --case-set plain --workbook web_ui_plain_smoke_work.xlsx --url http://localhost:8501/",
+    "quick_action_run_command": "python -B tools_web_ui_smoke.py --case-set quick --workbook web_ui_quick_smoke_work.xlsx --url http://localhost:8501/",
     "prepare_status": "PASS",
     "prepare_evidence": "Created/copied web_ui_smoke_work.xlsx, opened it in Excel, and passed Streamlit healthcheck.",
     "browser_runner_status": "READY",
@@ -226,7 +233,8 @@
     "ui_tool_labels": "In-app browser label check showed friendly statuses such as 已讀取資料 and 已查詢資料, with no visible query_range/get_used_range checklist.",
     "copy_range_between_workbooks": "COM verified web_ui_v47_second.xlsx!Target!D1:F3 contains copied SalesData A1:C3.",
     "save_workbook": "COM verified web_ui_v47_second.xlsx Saved=True and file mtime updated.",
-    "undo_last": "COM verified Target!Z1 restored from UNDO_MARK to blank."
+    "undo_last": "COM verified Target!Z1 restored from UNDO_MARK to blank.",
+    "quick_action_ui": "In-app browser clicked 查詢加總資料, auto-submitted the plain prompt, and received grouped totals with North=500.0 and grand total=880.0."
   },
   "artifacts": {
     "report": "WEB_UI_TOOL_TEST_REPORT.md",

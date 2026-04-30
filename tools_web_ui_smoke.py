@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from ui.quick_actions import quick_action_prompt
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "web_ui_smoke_base.xlsx"
@@ -99,10 +101,24 @@ PLAIN_LANGUAGE_SMOKE_CASES = [
     ),
 ]
 
+QUICK_ACTION_SMOKE_CASES = [
+    SmokeCase(
+        name="quick_action_beautify_report",
+        tool="beautify_range",
+        prompt=quick_action_prompt("beautify_report"),
+    ),
+    SmokeCase(
+        name="quick_action_summarize_data",
+        tool="summarize_range",
+        prompt=quick_action_prompt("summarize_data"),
+    ),
+]
+
 CASE_SETS = {
     "tool": SMOKE_CASES,
     "plain": PLAIN_LANGUAGE_SMOKE_CASES,
-    "all": SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES,
+    "quick": QUICK_ACTION_SMOKE_CASES,
+    "all": SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES + QUICK_ACTION_SMOKE_CASES,
 }
 
 
@@ -270,6 +286,21 @@ def _verify(case: SmokeCase, wb: Any, assistant_text: str) -> tuple[bool, str]:
         value = _cell_value(wb, "Report", "AA1")
         return value == "白話輸入OK", f"Report!AA1={value!r}"
 
+    if case.name == "quick_action_beautify_report":
+        ws = wb.Worksheets("SalesData")
+        ok = (
+            ws.UsedRange.Address == "$A$1:$G$10"
+            and ws.Range("A1").Text == "Date"
+            and bool(ws.Range("A1").Font.Bold)
+            and bool(ws.AutoFilterMode)
+        )
+        return ok, f"SalesData used={ws.UsedRange.Address}, header={ws.Range('A1').Text!r}"
+
+    if case.name == "quick_action_summarize_data":
+        preview = assistant_text.replace("\n", " ")[:180]
+        ok = any(token in assistant_text for token in ("SalesData", "資料", "摘要", "合計", "平均", "Amount"))
+        return ok, f"assistant summary preview={preview!r}"
+
     if case.name == "write_range_undo_marker":
         value = _cell_value(wb, "Report", "Z1")
         return value == "SMOKE_UNDO", f"Report!Z1={value!r}"
@@ -393,7 +424,7 @@ def main() -> int:
         "--case-set",
         choices=sorted(CASE_SETS),
         default="tool",
-        help="tool=explicit tool-name smoke, plain=natural user wording, all=both",
+        help="tool=explicit tool-name smoke, plain=natural wording, quick=quick-action prompts, all=all cases",
     )
     parser.add_argument(
         "--plain-language",

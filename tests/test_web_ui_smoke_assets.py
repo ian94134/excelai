@@ -14,7 +14,12 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from build_web_ui_smoke_fixture import SALES_HEADERS, build_workbook
-from tools_web_ui_smoke import CASE_SETS, PLAIN_LANGUAGE_SMOKE_CASES, SMOKE_CASES
+from tools_web_ui_smoke import (
+    CASE_SETS,
+    PLAIN_LANGUAGE_SMOKE_CASES,
+    QUICK_ACTION_SMOKE_CASES,
+    SMOKE_CASES,
+)
 
 
 def test_web_ui_smoke_fixture_has_expected_query_data(tmp_path):
@@ -69,12 +74,24 @@ def test_plain_language_smoke_cases_do_not_require_tool_names():
         "plain_write_report_aa1",
     ]
     assert tools == ["beautify_range", "query_range", "write_range"]
-    assert set(CASE_SETS) == {"tool", "plain", "all"}
+    assert set(CASE_SETS) == {"tool", "plain", "quick", "all"}
     assert CASE_SETS["plain"] == PLAIN_LANGUAGE_SMOKE_CASES
-    assert CASE_SETS["all"] == SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES
+    assert CASE_SETS["quick"] == QUICK_ACTION_SMOKE_CASES
+    assert CASE_SETS["all"] == SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES + QUICK_ACTION_SMOKE_CASES
 
-    all_tool_names = {case.tool for case in SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES}
-    for case in PLAIN_LANGUAGE_SMOKE_CASES:
+    all_tool_names = {case.tool for case in SMOKE_CASES + PLAIN_LANGUAGE_SMOKE_CASES + QUICK_ACTION_SMOKE_CASES}
+    for case in PLAIN_LANGUAGE_SMOKE_CASES + QUICK_ACTION_SMOKE_CASES:
         assert "呼叫" not in case.prompt
         assert "工具" not in case.prompt
         assert not any(tool_name in case.prompt for tool_name in all_tool_names)
+
+
+def test_quick_action_smoke_cases_are_minimal():
+    assert [case.name for case in QUICK_ACTION_SMOKE_CASES] == [
+        "quick_action_beautify_report",
+        "quick_action_summarize_data",
+    ]
+    assert [case.tool for case in QUICK_ACTION_SMOKE_CASES] == [
+        "beautify_range",
+        "summarize_range",
+    ]
